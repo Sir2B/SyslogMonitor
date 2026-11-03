@@ -1,0 +1,165 @@
+"""Smoke tests for the application entry point (startup, lock, shutdown)."""
+
+import json
+import logging
+import logging.handlers
+import os
+import socket
+import sqlite3
+import subprocess
+import sys
+import textwrap
+from contextlib import closing
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from PySide6.QtCore import QLockFile
+
+from syslog_monitor import app as app_module
+from syslog_monitor.config import load_settings
+
+
+def free_udp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def free_tcp_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def write_settings(cfg, **extra) -> None:
+    data = {"bind_host": "127.0.0.1", "port": free_udp_port(), "mcp_port": free_tcp_port(), **extra}
+    (cfg / "settings.json").write_text(json.dumps(data))
+
+
+@pytest.fixture
+def config_dir(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)  # main() installs its own hook
+    cfg = tmp_path / "SyslogMonitor"
+    cfg.mkdir()
+    write_settings(cfg)
+    messages = []
+    monkeypatch.setattr(app_module.QMessageBox, "warning", lambda *a: messages.append(a[2]))
+    monkeypatch.setattr(app_module.QMessageBox, "critical", lambda *a: messages.append(a[2]))
+    yield SimpleNamespace(path=cfg, messages=messages)
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.handlers.RotatingFileHandler):
+            root.removeHandler(handler)
+            handler.close()
+
+
+def test_main_creates_its_config_directory_without_modifying_other_directories(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    other_dir = tmp_path / "other-application"
+    other_dir.mkdir()
+    marker = other_dir / "settings.json"
+    marker.write_text("unchanged", encoding="utf-8")
+    run_dirs = []
+    monkeypatch.setattr(app_module, "setup_logging", lambda path: None)
+    monkeypatch.setattr(app_module, "_run", lambda app, path: run_dirs.append(path) or 0)
+
+    assert app_module.main([]) == 0
+    assert run_dirs == [tmp_path / "SyslogMonitor"]
+    assert run_dirs[0].is_dir()
+    assert marker.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_start_receive_and_quit(tmp_path):
+    # Runs in a separate process: after QApplication.exec() has returned, Qt does not
+    # deliver cross-thread events reliably anymore, which would break later GUI tests.
+    cfg = tmp_path / "SyslogMonitor"
+    cfg.mkdir()
+    write_settings(cfg)
+    settings = json.loads((cfg / "settings.json").read_text())
+    port, mcp_port = settings["port"], settings["mcp_port"]
+    script = textwrap.dedent(f"""
+        import json, socket, sys, threading, time, urllib.request
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        from syslog_monitor.app import main
+
+        app = QApplication([])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        QTimer.singleShot(500, lambda: sock.sendto(b"<11>1 - host app - - - smoke test", ("127.0.0.1", {port})))
+        started, answers = time.monotonic(), []
+
+        def ask_mcp():  # the MCP server starts in the background and must answer
+            body = json.dumps({{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {{"name": "search_logs", "arguments": {{"query": "smoke"}}}}}}).encode()
+            request = urllib.request.Request("http://127.0.0.1:{mcp_port}/mcp", data=body, headers={{
+                "Content-Type": "application/json", "Accept": "application/json, text/event-stream"}})
+            for _ in range(300):
+                try:
+                    if time.monotonic() - started > 1.5:
+                        answers.append(json.loads(urllib.request.urlopen(request, timeout=5).read()))
+                        return
+                except OSError:
+                    pass
+                time.sleep(0.1)
+            answers.append(None)
+
+        threading.Thread(target=ask_mcp, daemon=True).start()
+        timer = QTimer()
+        timer.timeout.connect(lambda: answers and app.quit())
+        timer.start(100)
+        exit_code = main([])
+        print("MCP-ANSWER", json.dumps(answers[0]))
+        sys.exit(exit_code)
+    """)
+    env = {**os.environ, "LOCALAPPDATA": str(tmp_path), "QT_QPA_PLATFORM": "offscreen",
+           "PYTHONPATH": str(Path(app_module.__file__).parents[1])}
+    result = subprocess.run([sys.executable, "-c", script], env=env, timeout=90,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with closing(sqlite3.connect(cfg / "data" / "syslog.sqlite3")) as conn:
+        assert conn.execute("SELECT message FROM events").fetchall() == [("smoke test",)]
+    answer = json.loads(result.stdout.split("MCP-ANSWER", 1)[1])
+    assert answer["result"]["structuredContent"]["total_matches"] == 1, result.stdout
+    log_text = (cfg / "logs" / "syslog_monitor.log").read_text(encoding="utf-8")
+    assert "MCP server is running" in log_text and "stopped" in log_text
+
+
+def test_second_instance_is_refused(config_dir):
+    lock = QLockFile(str(config_dir.path / "instance.lock"))
+    assert lock.tryLock(100)
+    try:
+        assert app_module.main([]) == 1
+        assert "is already running" in config_dir.messages[0]
+    finally:
+        lock.unlock()
+
+
+def test_unusable_data_dir_reports_error(config_dir, tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")
+    write_settings(config_dir.path, data_dir=str(blocker))
+    assert load_settings(config_dir.path / "settings.json").data_dir == str(blocker)
+    assert app_module.main([]) == 2
+    assert "is unavailable" in config_dir.messages[0]
+
+
+def test_app_user_model_id_is_project_specific():
+    assert app_module.APP_USER_MODEL_ID == "SyslogMonitor.Desktop"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows taskbar identity")
+def test_windows_app_id_is_set_for_taskbar_icon():
+    script = textwrap.dedent("""
+        import ctypes
+        from ctypes import wintypes
+        from syslog_monitor.app import APP_USER_MODEL_ID, set_windows_app_id
+        assert set_windows_app_id()
+        value = wintypes.LPWSTR()
+        assert ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(value)) == 0
+        assert value.value == APP_USER_MODEL_ID, value.value
+        ctypes.windll.ole32.CoTaskMemFree(value)
+    """)
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

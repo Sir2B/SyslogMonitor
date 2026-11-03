@@ -1,0 +1,39 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Generated distributions and build intermediates
+/build/
+/dist/
+
+# Local data, diagnostics and configuration can contain sensitive information
+/data/
+/logs/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+*.log.*
+settings.json
+ui.ini
+instance.lock
+.env
+.env.*
+!.env.example
+
+# Local editor and code-index state
+.vscode/
+.idea/
+.codebase-memory/

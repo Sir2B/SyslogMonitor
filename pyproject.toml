@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syslog-monitor"
+version = "1.0.0"
+description = "Syslog Monitor: syslog UDP receiver with persistent storage, search and error minimap"
+readme = "README.md"
+license = {file = "LICENSE"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.6", "mcp>=2.3,<3"]
+
+[project.urls]
+Homepage = "https://github.com/Sir2B/SyslogMonitor"
+Issues = "https://github.com/Sir2B/SyslogMonitor/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-qt>=4.4"]
+
+[project.gui-scripts]
+syslog-monitor = "syslog_monitor.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["slow: long running load tests (enable with SYSLOG_MONITOR_SLOW_TESTS=1)"]
