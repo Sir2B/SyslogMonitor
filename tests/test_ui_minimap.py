@@ -61,6 +61,52 @@ def test_paints_without_errors(qtbot):
     w.grab()
 
 
+def test_visible_table_range_is_shaded_and_clipped(qtbot):
+    widget = make_widget(qtbot)
+    before = widget.grab().toImage()
+    widget.set_visible_range(100_000, 200_000)
+    shaded = widget.grab().toImage()
+    assert shaded.pixelColor(150, 25).red() < before.pixelColor(150, 25).red()
+    assert shaded.pixelColor(50, 25) == before.pixelColor(50, 25)
+    assert shaded.pixelColor(350, 25) == before.pixelColor(350, 25)
+    widget.set_visible_range(-100_000, 500_000)
+    assert widget.grab().toImage().pixelColor(50, 25).red() < before.pixelColor(50, 25).red()
+    widget.set_visible_range(None, None)
+    assert widget.visible_range is None
+    assert widget.grab().toImage().pixelColor(150, 25) == before.pixelColor(150, 25)
+
+
+def test_selected_logs_have_continuous_dark_gray_background(qtbot):
+    from PySide6.QtGui import QColor
+
+    widget = make_widget(qtbot)
+    before = widget.grab().toImage()
+    widget.set_selected_times((300_000, 100_000, 100_000))
+    assert widget.selected_times == (100_000, 300_000)
+    marked = widget.grab().toImage()
+    assert marked.pixelColor(100, 25) == QColor(80, 80, 80)
+    assert marked.pixelColor(150, 25) == QColor(80, 80, 80)
+    assert marked.pixelColor(190, 25) == QColor(80, 80, 80)
+    assert marked.pixelColor(299, 0) == QColor(80, 80, 80)
+    assert marked.pixelColor(350, 25) == before.pixelColor(350, 25)
+    widget.set_selected_times(())
+    assert widget.grab().toImage().pixelColor(100, 25) == before.pixelColor(100, 25)
+
+
+def test_selected_marker_is_behind_error_and_highlight_colors(qtbot):
+    from PySide6.QtGui import QColor
+
+    widget = make_widget(qtbot)
+    hist = widget.histogram
+    widget.set_histogram(Histogram(hist.start_ms, hist.end_ms, hist.counts, [0, 1, 0, 0]))
+    before = widget.grab().toImage()
+    widget.set_selected_times((150_000,))
+    selected = widget.grab().toImage()
+    assert selected.pixelColor(150, 3) == before.pixelColor(150, 3)
+    assert selected.pixelColor(150, 9) == HIGHLIGHT_COLOR
+    assert selected.pixelColor(150, 25) == QColor(80, 80, 80)
+
+
 def test_highlight_strip_is_separate_from_errors(qtbot):
     w = make_widget(qtbot)
     hist = w.histogram

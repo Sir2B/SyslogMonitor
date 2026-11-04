@@ -452,6 +452,49 @@ def test_scrolling_away_pauses_live_view(qtbot, window):
     assert "PAUSED" in window.mode_label.text()
 
 
+def test_minimap_visible_range_tracks_table_scroll_resize_and_empty_view(qtbot, window, monkeypatch):
+    from PySide6.QtCore import QItemSelectionModel
+
+    from syslog_monitor import receiver
+
+    start = time.time_ns() // 1_000_000 - 200_000
+    timestamps = iter(start + index * 1000 for index in range(200))
+    monkeypatch.setattr(receiver, "now_ms", lambda: next(timestamps))
+    send(window, *[f"<14>range example {index}" for index in range(200)])
+    qtbot.waitUntil(lambda: window.model.rowCount() == 200)
+    qtbot.waitUntil(lambda: window.minimap.visible_range is not None)
+    qtbot.waitUntil(lambda: window.table.verticalScrollBar().maximum() >= 50)
+
+    def expected_bounds():
+        first = window.table.rowAt(0)
+        last = window.table.rowAt(window.table.viewport().height() - 1)
+        if last < 0:
+            last = window.model.rowCount() - 1
+        return (window.model.row_at(last).received_at, window.model.row_at(first).received_at)
+
+    qtbot.waitUntil(lambda: window.minimap.visible_range == expected_bounds())
+    assert window.minimap.visible_range[0] > start
+    assert window.minimap.selected_times == ()
+    window.table.selectRow(5)
+    assert window.minimap.selected_times == (start + 194_000,)
+    window.table.verticalScrollBar().setValue(50)
+    qtbot.waitUntil(lambda: window.minimap.visible_range == expected_bounds())
+    assert window.minimap.visible_range[1] == start + 149_000
+    assert window.minimap.selected_times == (start + 194_000,)
+    window.table.selectionModel().select(
+        window.model.index(50, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    window.table.selectionModel().select(
+        window.model.index(60, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert window.minimap.selected_times == (start + 139_000, start + 149_000)
+    window.table.clearSelection()
+    assert window.minimap.selected_times == ()
+    window.splitter.setSizes([150, 500])
+    qtbot.waitUntil(lambda: window.minimap.visible_range == expected_bounds())
+    window.filter_bar.add_rule(FilterRule(value="no matching event"))
+    qtbot.waitUntil(lambda: window.model.rowCount() == 0)
+    qtbot.waitUntil(lambda: window.minimap.visible_range is None)
+
+
 def test_zoom_and_reset(qtbot, window):
     send(window, "<14>a")
     qtbot.waitUntil(lambda: window.model.rowCount() == 1, timeout=5000)
@@ -560,6 +603,31 @@ def test_stale_query_results_are_discarded(qtbot, tmp_path):
 def selected_message(window):
     row = window.model.row_at(window.table.currentIndex().row())
     return None if row is None else row.message
+
+
+def test_selected_rows_remain_distinct_over_highlights_and_without_focus(qtbot, window):
+    from PySide6.QtGui import QColor
+
+    send(window, "<14>1 - h app - - - Initializing system",
+         "<14>1 - h app - - - ordinary message")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 2)
+    window.set_live(False)
+    window.table.selectAll()
+    window.table.setFocus()
+
+    def selected_colors():
+        image = window.table.viewport().grab().toImage()
+        colors = []
+        for row_number in range(2):
+            rect = window.table.visualRect(window.model.index(row_number, 4))
+            colors.append(image.pixelColor(rect.right() - 8, rect.center().y()))
+        return colors
+
+    qtbot.waitUntil(lambda: selected_colors() == [QColor("#505050")] * 2)
+    window.search_text.setFocus()
+    qtbot.waitUntil(lambda: selected_colors() == [QColor("#505050")] * 2)
+    window.table.selectionModel().clearSelection()
+    qtbot.waitUntil(lambda: all(color != QColor("#505050") for color in selected_colors()))
 
 
 def test_search_navigates_without_hiding_context(qtbot, window):

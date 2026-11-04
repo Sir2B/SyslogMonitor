@@ -281,6 +281,10 @@ class MainWindow(QMainWindow):
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setStyleSheet(
+            "QTableView::item:selected { background-color: #505050; color: #ffffff; "
+            "border-top: 1px solid #303030; border-bottom: 1px solid #303030; }"
+        )
         self.table.setToolTip("Ctrl/Shift: select multiple rows. Ctrl+C: copy selection.")
         self.copy_action = QAction("Copy selected rows", self.table,
                                    shortcut=QKeySequence.Copy, enabled=False)
@@ -302,6 +306,12 @@ class MainWindow(QMainWindow):
         for column, width in enumerate((170, 80, 70, 110, 120, 130)):
             self.table.setColumnWidth(column, width)
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self._visible_range_timer = QTimer(self, singleShot=True)
+        self._visible_range_timer.timeout.connect(self._update_marker)
+        self.table.viewport().installEventFilter(self)
+        for signal in (self.model.modelReset, self.model.rowsInserted, self.model.rowsRemoved,
+                       self.table.verticalScrollBar().rangeChanged):
+            signal.connect(lambda *_args: self._visible_range_timer.start(0))
         self.table.selectionModel().currentRowChanged.connect(self._on_current_row)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
 
@@ -372,7 +382,10 @@ class MainWindow(QMainWindow):
         return RANGE_PRESETS[index][1] if index < len(RANGE_PRESETS) else None
 
     def eventFilter(self, watched, event) -> bool:
-        if event.type() in (QEvent.Resize, QEvent.LayoutRequest):
+        if watched is self.table.viewport():
+            if event.type() == QEvent.Resize:
+                self._visible_range_timer.start(0)
+        elif event.type() in (QEvent.Resize, QEvent.LayoutRequest):
             self._rules_height_timer.start(0)
         return super().eventFilter(watched, event)
 
@@ -627,8 +640,12 @@ class MainWindow(QMainWindow):
         self._update_marker()
 
     def _update_marker(self) -> None:
-        row = self.model.row_at(max(self.table.rowAt(0), 0))
-        self.minimap.set_marker(row.received_at if row else None)
+        top = self.model.row_at(self.table.rowAt(0))
+        bottom_index = self.table.rowAt(self.table.viewport().height() - 1)
+        bottom = self.model.row_at(bottom_index if bottom_index >= 0 else self.model.rowCount() - 1)
+        self.minimap.set_visible_range(bottom.received_at if top and bottom else None,
+                                      top.received_at if top else None)
+        self._update_selection_marker()
 
     # ------------------------------------------------------------ navigation
     def _reset_search(self) -> None:
@@ -653,7 +670,7 @@ class MainWindow(QMainWindow):
         revision = self._highlight_revision
         cursor = self._highlight_cursor
         f = self.list_filter()
-        self.search_result.setText("Searching highlight matchesÔÇª")
+        self.search_result.setText("Searching highlight matches…")
 
         def job(runner: QueryRunner):
             hit = runner.find_highlight_match(f, text, cursor, newer=bool(cursor and newer))
@@ -840,8 +857,17 @@ class MainWindow(QMainWindow):
     def _selection_changed(self) -> None:
         selected = self.table.selectionModel().selectedRows()
         self.copy_action.setEnabled(bool(selected))
+        self._update_selection_marker()
         if len(selected) > 1:
             self.set_live(False)
+
+    def _update_selection_marker(self) -> None:
+        times = []
+        for index in self.table.selectionModel().selectedRows():
+            row = self.model.row_at(index.row())
+            if row is not None:
+                times.append(row.received_at)
+        self.minimap.set_selected_times(tuple(times))
 
     def copy_selected_rows(self) -> None:
         rows = [index.row() for index in self.table.selectionModel().selectedRows()]
@@ -1065,6 +1091,7 @@ class MainWindow(QMainWindow):
         for timer in self._timers:
             timer.stop()
         self._highlight_timer.stop()
+        self._visible_range_timer.stop()
         self.queries.shutdown()
         if self.tray:
             self.tray.hide()

@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass
@@ -51,7 +51,8 @@ class MinimapWidget(QWidget):
         self.setMouseTracking(True)
         self.setCursor(Qt.PointingHandCursor)
         self._hist: Histogram | None = None
-        self._marker_ms: int | None = None
+        self._selected_times: tuple[int, ...] = ()
+        self._visible_range: tuple[int, int] | None = None
         self._press_x: int | None = None
         self._drag_x: int | None = None
 
@@ -72,8 +73,26 @@ class MinimapWidget(QWidget):
         return max(HIGHLIGHT_STRIP_PX, len(hist.highlight_rules) * 3)
 
     def set_marker(self, time_ms: int | None) -> None:
-        if time_ms != self._marker_ms:
-            self._marker_ms = time_ms
+        self.set_selected_times(() if time_ms is None else (time_ms,))
+
+    @property
+    def selected_times(self) -> tuple[int, ...]:
+        return self._selected_times
+
+    def set_selected_times(self, times: tuple[int, ...]) -> None:
+        selected = tuple(sorted(set(times)))
+        if selected != self._selected_times:
+            self._selected_times = selected
+            self.update()
+
+    @property
+    def visible_range(self) -> tuple[int, int] | None:
+        return self._visible_range
+
+    def set_visible_range(self, start_ms: int | None, end_ms: int | None) -> None:
+        bounds = None if start_ms is None or end_ms is None else tuple(sorted((start_ms, end_ms)))
+        if bounds != self._visible_range:
+            self._visible_range = bounds
             self.update()
 
     # --- geometry helpers -----------------------------------------------------
@@ -112,6 +131,7 @@ class MinimapWidget(QWidget):
         painter.setPen(QColor(200, 200, 210))
         painter.drawRect(plot)
         hist = self._hist
+        self._paint_selected_times(painter, plot)
         if hist and hist.counts:
             self._paint_bars(painter, plot, hist)
             self._paint_axis(painter, hist)
@@ -167,14 +187,27 @@ class MinimapWidget(QWidget):
                          format_ts(hist.end_ms, with_date=not same_day)[: 8 if same_day else 19])
 
     def _paint_marker_and_selection(self, painter: QPainter, plot: QRect) -> None:
-        if self._hist and self._marker_ms is not None:
-            x = self.time_to_x(self._marker_ms)
-            if plot.left() <= x <= plot.right():
-                painter.setPen(QPen(QColor(20, 20, 20), 2))
-                painter.drawLine(int(x), plot.top(), int(x), plot.bottom())
+        if self._hist and self._visible_range is not None:
+            start_ms, end_ms = self._visible_range
+            if end_ms >= self._hist.start_ms and start_ms <= self._hist.end_ms:
+                left = max(float(plot.left()), self.time_to_x(start_ms))
+                right = min(float(plot.right()), self.time_to_x(end_ms))
+                left = min(left, float(plot.right()) - 2)
+                painter.fillRect(QRectF(left, plot.top(), max(2.0, right - left), plot.height()),
+                                 QColor(90, 90, 90, 65))
         if self._press_x is not None and self._drag_x is not None:
             left, right = sorted((self._press_x, self._drag_x))
             painter.fillRect(QRect(left, plot.top(), right - left, plot.height()), QColor(0, 120, 215, 60))
+
+    def _paint_selected_times(self, painter: QPainter, plot: QRect) -> None:
+        if self._hist and self._selected_times:
+            start_ms, end_ms = self._selected_times[0], self._selected_times[-1]
+            if end_ms >= self._hist.start_ms and start_ms <= self._hist.end_ms:
+                left = max(float(plot.left()), self.time_to_x(start_ms))
+                right = min(float(plot.right()), self.time_to_x(end_ms))
+                left = min(left, float(plot.right()) - 2)
+                painter.fillRect(QRectF(left, plot.top(), max(2.0, right - left), plot.height()),
+                                 QColor(80, 80, 80))
 
     # --- interaction ----------------------------------------------------------
     def mousePressEvent(self, event: QMouseEvent) -> None:
