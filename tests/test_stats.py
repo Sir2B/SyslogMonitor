@@ -39,3 +39,11 @@ def test_rate_tracker_handles_counter_reset_and_nonpositive_elapsed_time():
     assert tracker.update(StatsSnapshot(received=5, persisted=4)).persisted == 1
     clock.now -= 1
     assert tracker.update(StatsSnapshot(received=100)).received == 0
+
+
+def test_tcp_framing_drops_are_included_in_the_drop_rate():
+    clock = Clock()
+    tracker = RateTracker(clock)
+    tracker.update(StatsSnapshot())
+    clock.now += 2
+    assert tracker.update(StatsSnapshot(dropped_tcp_framing=4)).dropped == 2

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from syslog_monitor import APP_DISPLAY_NAME
 from syslog_monitor.config import Settings, save_settings
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass, severity_class
-from syslog_monitor.firewall import FirewallCheck, Level, check_firewall, current_programs, remedy
+from syslog_monitor.firewall import FirewallCheck, Level, check_firewalls, current_programs, remedy
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
     DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, TEXT_MODE_WORDS, Cursor, EventFilter, HighlightBatch, Histogram,
@@ -82,7 +82,7 @@ def _range_bounds(now_ms: int, duration: int | None, custom: Bounds | None) -> B
 class MainWindow(QMainWindow):
     def __init__(self, service: CaptureService, *, settings_path: Path, ui_state: QSettings,
                  tray_enabled: bool, timings: Timings = Timings(),
-                 firewall_checker: Checker = check_firewall, mcp: McpService | None = None) -> None:
+                 firewall_checker: Checker = check_firewalls, mcp: McpService | None = None) -> None:
         super().__init__()
         self.service = service
         self.mcp = mcp
@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Controls", objectName="main_toolbar", movable=False)
         self.addToolBar(toolbar)
         self.listen_action = QAction("Receive", self, checkable=True)
-        self.listen_action.setToolTip("Start/stop UDP receiving")
+        self.listen_action.setToolTip("Start/stop the enabled UDP and TCP listeners")
         self.listen_action.triggered.connect(self._toggle_listener)
         self.live_action = QAction("● Live", self, checkable=True, checked=True)
         self.live_action.setToolTip("Live: automatically show the newest messages.\n"
@@ -902,10 +902,15 @@ class MainWindow(QMainWindow):
             f"queued {format_count(snap.queued)}<br>"
             f"<span style='color:#555'>Live: {rates.received:.1f}/s received · "
             f"{rates.persisted:.1f}/s stored · {rates.dropped:.1f}/s dropped</span>")
-        losses = snap.dropped_queue_full + snap.dropped_write_error
+        losses = snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing
         if losses:
             self.counter_label.setText(self.counter_label.text() +
                                        f" · <b style='color:#b00020'>dropped {format_count(losses)}</b>")
+        if snap.tcp_connections_rejected:
+            self.counter_label.setText(
+                self.counter_label.text() +
+                f" · <b style='color:#b00020'>TCP connections rejected "
+                f"{format_count(snap.tcp_connections_rejected)}</b>")
         storage = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(self.service.settings.max_storage_bytes)}"
         if snap.writer_error:
             storage = f"<b style='color:#b00020'>{snap.writer_error}</b> · {storage}"
@@ -921,13 +926,15 @@ class MainWindow(QMainWindow):
             self.tray.update_status(snap)
 
     def _show_listener_state(self, snap: StatsSnapshot) -> None:
-        listening = snap.listener_state == "running"
+        listening = self.service.listening
         self.listen_action.setChecked(listening)
         self.listen_action.setText("■ Stop receiving" if listening else "▶ Start receiving")
-        if listening:
-            text = f"<span style='color:#1a7f37'>UDP {snap.listener_address} active</span>"
-        elif snap.listener_state == "error":
+        if snap.listener_state == "error":
             text = f"<b style='color:#b00020'>{snap.listener_error}</b>"
+            if listening:
+                text += f" · Still receiving on {snap.listener_display_address}"
+        elif listening:
+            text = f"<span style='color:#1a7f37'>{snap.listener_display_address} active</span>"
         else:
             text = "<span style='color:#666'>Receiving stopped</span>"
         self.listener_label.setText(text)
@@ -946,7 +953,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def check_firewall(self) -> None:
         settings = self.service.settings
-        self.firewall.request(settings.bind_host, settings.port)
+        self.firewall.request(settings.bind_host, settings.listener_endpoints)
 
     @Slot(object)
     def _apply_firewall(self, check: FirewallCheck) -> None:

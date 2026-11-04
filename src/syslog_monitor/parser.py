@@ -69,11 +69,11 @@ def _parse_iso_time(text: str) -> int | None:
     """Return UTC epoch ms for an ISO-8601 timestamp with offset, else None."""
     try:
         parsed = datetime.fromisoformat(text)
-    except ValueError:
+        if parsed.tzinfo is None:
+            return None
+        return int(parsed.astimezone(timezone.utc).timestamp() * 1000)
+    except (ValueError, OverflowError, OSError):
         return None
-    if parsed.tzinfo is None:
-        return None
-    return int(parsed.astimezone(timezone.utc).timestamp() * 1000)
 
 
 def _parse_rfc5424(event: SyslogEvent, header: re.Match[str], tail: str, issues: list[str]) -> None:

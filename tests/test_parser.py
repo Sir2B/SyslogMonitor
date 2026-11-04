@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from syslog_monitor.parser import parse_datagram, split_structured_data
 
 
@@ -49,6 +51,17 @@ def test_rfc5424_timestamp_without_zone_is_not_utc():
     assert ev.reported_time_text == "2024-01-01T10:00:00"
     assert ev.reported_time_utc is None
     assert "bad_timestamp" in ev.issues
+
+
+@pytest.mark.parametrize("timestamp", [
+    b"9999-12-31T23:59:59-23:59", b"0001-01-01T00:00:00+23:59",
+])
+def test_extreme_timestamp_is_recorded_as_invalid_instead_of_crashing(timestamp):
+    ev = parse(b"<13>1 " + timestamp + b" host app - - - message")
+    assert ev.reported_time_text == timestamp.decode()
+    assert ev.reported_time_utc is None
+    assert "bad_timestamp" in ev.issues
+    assert ev.message == "message"
 
 
 def test_rfc3164_with_host_and_tag():

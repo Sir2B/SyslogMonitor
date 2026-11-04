@@ -39,7 +39,7 @@ class TrayController(QObject):
             self.icon.setIcon(app_icon(snap.listener_state))
         state = {"running": "receiving", "stopped": "stopped", "error": "ERROR"}[snap.listener_state]
         self.icon.setToolTip(
-            f"{APP_DISPLAY_NAME} – {state} {snap.listener_address}\n"
+            f"{APP_DISPLAY_NAME} – {state} {snap.listener_display_address}\n"
             f"Stored: {format_count(snap.persisted)}")
 
     def notify_hidden_once(self) -> None:

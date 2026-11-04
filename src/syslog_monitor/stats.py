@@ -24,6 +24,15 @@ class StatsSnapshot:
     writer_error: str = ""
     storage_bytes: int = 0
     storage_budget_exceeded: bool = False
+    dropped_tcp_framing: int = 0
+    tcp_connections_rejected: int = 0
+    listener_endpoints: tuple[tuple[str, str, int], ...] = ()
+
+    @property
+    def listener_display_address(self) -> str:
+        if self.listener_endpoints:
+            return ", ".join(f"{protocol} {host}:{port}" for protocol, host, port in self.listener_endpoints)
+        return self.listener_address
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +51,7 @@ class RateTracker:
 
     def update(self, snapshot: StatsSnapshot) -> CounterRates:
         now = self._clock()
-        dropped = snapshot.dropped_queue_full + snapshot.dropped_write_error
+        dropped = snapshot.dropped_queue_full + snapshot.dropped_write_error + snapshot.dropped_tcp_framing
         current = (now, snapshot.received, snapshot.persisted, dropped)
         previous, self._previous = self._previous, current
         if previous is None:
@@ -64,6 +73,8 @@ class Stats:
         "received",
         "parse_issues",
         "dropped_queue_full",
+        "dropped_tcp_framing",
+        "tcp_connections_rejected",
         "persisted",
         "write_failures",
         "dropped_write_error",

@@ -70,7 +70,7 @@ def facility_name(facility: int | None) -> str:
 
 @dataclass(slots=True)
 class SyslogEvent:
-    """A received datagram, parsed as far as possible.
+    """A received syslog message, parsed as far as possible.
 
     ``received_at`` is the local reception time (UTC, epoch milliseconds) and is
     the authoritative ordering key. ``reported_time_*`` is what the sender claims.

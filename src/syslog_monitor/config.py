@@ -8,6 +8,7 @@ import logging
 import os
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
+from typing import Literal
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +17,8 @@ MIN_STORAGE_MB = 64
 MAX_RETENTION_DAYS = 3650
 DEFAULT_BOOT_MARKER = "Initializing system"
 MCP_HOST = "127.0.0.1"  # the MCP server is never reachable from other machines
+Transport = Literal["UDP", "TCP"]
+ListenerEndpoint = tuple[Transport, int]
 
 
 def default_config_dir() -> Path:
@@ -34,6 +37,9 @@ class Settings:
     mcp_enabled: bool = True
     mcp_port: int = 8514
     boot_marker: str = DEFAULT_BOOT_MARKER  # ";"-separated texts marking a device start (MCP)
+    udp_enabled: bool = True
+    tcp_enabled: bool = False
+    tcp_port: int = 514
 
     def resolved_data_dir(self, config_dir: Path) -> Path:
         return Path(self.data_dir) if self.data_dir else config_dir / "data"
@@ -41,6 +47,15 @@ class Settings:
     @property
     def max_storage_bytes(self) -> int:
         return self.max_storage_mb * 1024 * 1024
+
+    @property
+    def listener_endpoints(self) -> tuple[ListenerEndpoint, ...]:
+        endpoints: list[ListenerEndpoint] = []
+        if self.udp_enabled:
+            endpoints.append(("UDP", self.port))
+        if self.tcp_enabled:
+            endpoints.append(("TCP", self.tcp_port))
+        return tuple(endpoints)
 
     def validate(self) -> list[str]:
         """Return human readable problems; empty list means valid."""
@@ -53,6 +68,12 @@ class Settings:
             errors.append(f"Invalid IPv4 address: {self.bind_host!r}")
         if not 1 <= self.port <= 65535:
             errors.append("Port must be between 1 and 65535.")
+        if not isinstance(self.udp_enabled, bool) or not isinstance(self.tcp_enabled, bool):
+            errors.append("UDP and TCP enabled settings must be true or false.")
+        elif not self.udp_enabled and not self.tcp_enabled:
+            errors.append("Enable at least one UDP or TCP listener.")
+        if type(self.tcp_port) is not int or not 1 <= self.tcp_port <= 65535:
+            errors.append("TCP port must be between 1 and 65535.")
         if not 1 <= self.retention_days <= MAX_RETENTION_DAYS:
             errors.append(f"Retention must be between 1 and {MAX_RETENTION_DAYS} days.")
         if self.max_storage_mb < MIN_STORAGE_MB:

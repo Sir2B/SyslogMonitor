@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "syslog-monitor"
 version = "1.0.0"
-description = "Syslog Monitor: syslog UDP receiver with persistent storage, search and error minimap"
+description = "Syslog Monitor: syslog UDP/TCP receiver with persistent storage, search and error minimap"
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]

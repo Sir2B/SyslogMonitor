@@ -115,9 +115,12 @@ def receiver_status(snap: StatsSnapshot) -> dict[str, object]:
     return {
         "state": snap.listener_state,
         "address": snap.listener_address,
+        "listeners": [{"protocol": protocol, "address": f"{host}:{port}"}
+                      for protocol, host, port in snap.listener_endpoints],
         "error": snap.listener_error or None,
         "received_since_start": snap.received,
-        "dropped_since_start": snap.dropped_queue_full + snap.dropped_write_error,
+        "dropped_since_start": snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing,
+        "tcp_connections_rejected_since_start": snap.tcp_connections_rejected,
     }
 
 

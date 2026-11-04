@@ -51,6 +51,28 @@ def test_mcp_defaults_and_validation(tmp_path):
     assert load_settings(path) == Settings(mcp_enabled=False, mcp_port=9000, boot_marker="a; b")
 
 
+def test_listener_defaults_migration_validation_and_roundtrip(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"bind_host": "127.0.0.1", "port": 5514}))
+    old = load_settings(path)
+    assert (old.udp_enabled, old.tcp_enabled, old.tcp_port) == (True, False, 514)
+    assert old.listener_endpoints == (("UDP", 5514),)
+
+    both = Settings(port=5514, tcp_enabled=True, tcp_port=6514)
+    assert both.validate() == []
+    assert both.listener_endpoints == (("UDP", 5514), ("TCP", 6514))
+    save_settings(path, both)
+    assert load_settings(path) == both
+    assert Settings(udp_enabled=False, tcp_enabled=True).listener_endpoints == (("TCP", 514),)
+    assert "Enable at least one UDP or TCP listener." in Settings(udp_enabled=False).validate()
+    assert Settings(tcp_port=0).validate() == ["TCP port must be between 1 and 65535."]
+    assert Settings(tcp_port="514").validate() == ["TCP port must be between 1 and 65535."]
+    assert Settings(tcp_enabled="false").validate() == ["UDP and TCP enabled settings must be true or false."]
+
+    path.write_text(json.dumps({"tcp_enabled": "false"}))
+    assert load_settings(path) == Settings()
+
+
 def test_default_config_dir_uses_local_appdata(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     path = default_config_dir()

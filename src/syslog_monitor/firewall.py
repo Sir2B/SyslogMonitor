@@ -1,4 +1,4 @@
-"""Read-only check whether the Windows Firewall lets syslog UDP reach this process.
+"""Read-only check whether the Windows Firewall lets syslog UDP/TCP reach this process.
 
 The *effective* policy (``-PolicyStore ActiveStore``: local rules merged with group policy)
 is read with the NetSecurity cmdlets, which needs no admin rights. The COM object
@@ -18,6 +18,8 @@ import sys
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+from syslog_monitor.config import ListenerEndpoint, Transport
+
 log = logging.getLogger(__name__)
 
 PROFILE_NAMES = {1: "Domain", 2: "Private", 4: "Public"}
@@ -27,6 +29,7 @@ PROTOCOL_TCP = 6
 PROTOCOL_UDP = 17
 PROTOCOL_ANY = 256
 PROTOCOL_UNKNOWN = -1
+PROTOCOL_NUMBERS = {"UDP": PROTOCOL_UDP, "TCP": PROTOCOL_TCP}
 CHECK_TIMEOUT_S = 30
 
 
@@ -73,6 +76,7 @@ class FirewallCheck:
     level: Level
     summary: str
     details: tuple[str, ...] = field(default_factory=tuple)
+    endpoint_checks: tuple[tuple[Transport, int, FirewallCheck], ...] = field(default_factory=tuple)
 
 
 def port_matches(spec: str | None, port: int) -> bool:
@@ -86,7 +90,7 @@ def port_matches(spec: str | None, port: int) -> bool:
         if low.isdigit() and (not sep or high.isdigit()):
             if int(low) <= port <= int(high if sep else low):
                 return True
-        # keywords such as "RPC" or "Teredo" never match a plain UDP port
+        # Keywords such as "RPC" or "Teredo" never match a plain port.
     return False
 
 
@@ -101,13 +105,15 @@ def app_matches(rule_app: str | None, programs: tuple[str, ...]) -> bool:
     return any(_norm_path(p) == wanted for p in programs)
 
 
-def _applies(rule: Rule, profile: int, ps: ProfileState, port: int, programs: tuple[str, ...]) -> bool:
-    return (not rule.restricted and rule.protocol in (PROTOCOL_UDP, PROTOCOL_ANY)
+def _applies(rule: Rule, profile: int, ps: ProfileState, port: int, programs: tuple[str, ...],
+             protocol: Transport) -> bool:
+    return (not rule.restricted and rule.protocol in (PROTOCOL_NUMBERS[protocol], PROTOCOL_ANY)
             and bool(rule.profiles & profile) and (ps.allow_local_rules or rule.group_policy)
             and port_matches(rule.local_ports, port) and app_matches(rule.application, programs))
 
 
-def assess(state: FirewallState, port: int, programs: tuple[str, ...]) -> FirewallCheck:
+def assess(state: FirewallState, port: int, programs: tuple[str, ...],
+           protocol: Transport = "UDP") -> FirewallCheck:
     """Mirror Windows semantics: block rules win over allow rules, otherwise the default applies."""
     active = [p for p in PROFILE_NAMES if state.active_profiles & p]
     if not active:
@@ -116,10 +122,10 @@ def assess(state: FirewallState, port: int, programs: tuple[str, ...]) -> Firewa
     for profile in active:
         name = PROFILE_NAMES[profile]
         ps = state.profiles.get(profile, ProfileState())
-        matching = [r for r in state.rules if _applies(r, profile, ps, port, programs)]
+        matching = [r for r in state.rules if _applies(r, profile, ps, port, programs, protocol)]
         blocking = [r.name for r in matching if r.block]
         if not ps.enabled:
-            details.append(f"{name}: Firewall is off; port {port} is reachable.")
+            details.append(f"{name}: Firewall is off; {protocol} port {port} is reachable.")
         elif ps.block_all_inbound:
             level = max(level, Level.ERROR)
             details.append(f"{name}: all inbound connections are blocked.")
@@ -130,7 +136,7 @@ def assess(state: FirewallState, port: int, programs: tuple[str, ...]) -> Firewa
             details.append(f"{name}: allowed by “{matching[0].name}”.")
         elif ps.default_block:
             level = max(level, Level.WARNING)
-            details.append(f"{name}: UDP {port} is not allowed; the default is to block inbound traffic.")
+            details.append(f"{name}: {protocol} {port} is not allowed; the default is to block inbound traffic.")
         else:
             details.append(f"{name}: inbound traffic is allowed by default.")
         if not ps.allow_local_rules:
@@ -139,9 +145,9 @@ def assess(state: FirewallState, port: int, programs: tuple[str, ...]) -> Firewa
     if state.unreadable_rules:
         details.append(f"Note: {state.unreadable_rules} rule(s) could not be evaluated due to read restrictions.")
     summary = {
-        Level.OK: f"UDP {port} is allowed",
-        Level.WARNING: f"UDP {port} is not allowed; only local messages can be received",
-        Level.ERROR: f"UDP {port} is blocked",
+        Level.OK: f"{protocol} {port} is allowed",
+        Level.WARNING: f"{protocol} {port} is not allowed; only local messages can be received",
+        Level.ERROR: f"{protocol} {port} is blocked",
     }[level]
     return FirewallCheck(level, summary, tuple(details))
 
@@ -204,7 +210,7 @@ $rules = foreach ($r in Get-NetFirewallRule -PolicyStore $store -Direction Inbou
   $id = $r.InstanceID
   $pf = $ports[$id]; if (-not $pf) { $pf = $r | Get-NetFirewallPortFilter }
   if (-not $pf) { $unreadable++; continue }
-  if ("$($pf.Protocol)" -notin 'UDP', 'Any', '17') { continue }
+  if ("$($pf.Protocol)" -notin 'UDP', 'TCP', 'Any', '17', '6', '256') { continue }
   $af = $apps[$id]; if (-not $af) { $af = $r | Get-NetFirewallApplicationFilter }
   $sf = $svcs[$id]; if (-not $sf) { $sf = $r | Get-NetFirewallServiceFilter }
   @{ name = "$($r.DisplayName)"; block = "$($r.Action)" -eq 'Block'; protocol = "$($pf.Protocol)";
@@ -243,26 +249,37 @@ def current_programs() -> tuple[str, ...]:
     return (getattr(sys, "_base_executable", "") or sys.executable,)
 
 
-def firewall_rule_command(port: int) -> str:
-    return (f'New-NetFirewallRule -DisplayName "Syslog Monitor UDP {port}" -Direction Inbound '
-            f"-Protocol UDP -LocalPort {port} -Action Allow")
+def firewall_rule_command(port: int, protocol: Transport = "UDP") -> str:
+    return (f'New-NetFirewallRule -DisplayName "Syslog Monitor {protocol} {port}" -Direction Inbound '
+            f"-Protocol {protocol} -LocalPort {port} -Action Allow")
 
 
-def firewall_unblock_command(port: int, program: str) -> str:
+def firewall_unblock_command(port: int, program: str, protocol: Transport = "UDP") -> str:
     """Remove the block rules Windows creates for a new program (when nobody with admin
     rights allowed it on first use) and add the port rule."""
     quoted = program.replace("'", "''")
     return (f"Get-NetFirewallApplicationFilter -Program '{quoted}' | Get-NetFirewallRule | "
-            "Where-Object Action -eq Block | Remove-NetFirewallRule; " + firewall_rule_command(port))
+            "Where-Object Action -eq Block | Remove-NetFirewallRule; " + firewall_rule_command(port, protocol))
 
 
-def remedy(check: FirewallCheck, port: int, program: str) -> tuple[tuple[str, ...], str | None]:
+def remedy(check: FirewallCheck, port: int, program: str,
+           protocol: Transport = "UDP") -> tuple[tuple[str, ...], str | None]:
     """Explanation lines and an optional admin PowerShell command for the details dialog."""
+    if check.endpoint_checks:
+        all_lines: list[str] = []
+        commands: list[str] = []
+        for endpoint_protocol, endpoint_port, endpoint_check in check.endpoint_checks:
+            lines, command = remedy(endpoint_check, endpoint_port, program, endpoint_protocol)
+            if lines:
+                all_lines.extend((f"{endpoint_protocol} {endpoint_port}:", *lines))
+            if command:
+                commands.append(command)
+        return tuple(all_lines), "; ".join(commands) if commands else None
     if check.level == Level.WARNING:
-        command = firewall_rule_command(port)
+        command = firewall_rule_command(port, protocol)
         return ("Create allow rule (once, in an elevated PowerShell):", command), command
     if check.level == Level.ERROR:
-        command = firewall_unblock_command(port, program)
+        command = firewall_unblock_command(port, program, protocol)
         return (
             "Block rules take precedence over allow rules.",
             "When a new program is started without administrator rights, Windows often "
@@ -274,13 +291,27 @@ def remedy(check: FirewallCheck, port: int, program: str) -> tuple[tuple[str, ..
     return (), None
 
 
-def check_firewall(bind_host: str, port: int) -> FirewallCheck:
+def check_firewalls(bind_host: str, endpoints: tuple[ListenerEndpoint, ...]) -> FirewallCheck:
+    if not endpoints:
+        return FirewallCheck(Level.UNKNOWN, "No syslog listener is enabled")
     if bind_host.startswith("127.") or bind_host == "localhost":
         return FirewallCheck(Level.OK, "Local-only listener; firewall is not relevant")
     if sys.platform != "win32":
         return FirewallCheck(Level.UNKNOWN, "Firewall checks are only available on Windows")
     try:
-        return assess(read_state(), port, current_programs())
+        state, programs = read_state(), current_programs()
+        checks = tuple((protocol, port, assess(state, port, programs, protocol))
+                       for protocol, port in endpoints)
+        level = max(check.level for _, _, check in checks)
+        summary = "; ".join(check.summary for _, _, check in checks)
+        details = tuple(
+            detail if len(checks) == 1 else f"{protocol} {port}: {detail}"
+            for protocol, port, check in checks for detail in check.details)
+        return FirewallCheck(level, summary, details, checks)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as exc:
         log.warning("Firewall check failed: %s", exc)
         return FirewallCheck(Level.UNKNOWN, "Could not check the firewall", (str(exc)[:300],))
+
+
+def check_firewall(bind_host: str, port: int, protocol: Transport = "UDP") -> FirewallCheck:
+    return check_firewalls(bind_host, ((protocol, port),))

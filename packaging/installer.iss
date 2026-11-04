@@ -7,6 +7,7 @@
 #define AppName "Syslog Monitor"
 #define AppExe "SyslogMonitor.exe"
 #define FirewallRule "Syslog Monitor (UDP inbound)"
+#define TcpFirewallRule "Syslog Monitor (TCP inbound)"
 
 [Setup]
 AppId={{6E4C1E0A-2F7B-4C35-9D0E-5B1C9A7F3D21}
@@ -37,6 +38,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "autostart"; Description: "Start automatically with Windows (runs in the system tray)"; Flags: unchecked
 Name: "firewall"; Description: "Allow inbound Syslog (UDP) through the firewall — requires administrator rights"; Flags: unchecked
+Name: "firewalltcp"; Description: "Allow inbound Syslog (TCP) through the firewall — requires administrator rights"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -57,12 +59,16 @@ Name: "{userstartup}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: autostart
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$exe = '{app}\{#AppExe}'; Remove-NetFirewallRule -DisplayName '{#FirewallRule}' -ErrorAction SilentlyContinue; Get-NetFirewallApplicationFilter -Program $exe | Get-NetFirewallRule | Where-Object Action -eq Block | Remove-NetFirewallRule; New-NetFirewallRule -DisplayName '{#FirewallRule}' -Direction Inbound -Protocol UDP -Program $exe -Action Allow"""; \
   Verb: runas; Flags: shellexec runhidden waituntilterminated; Tasks: firewall; \
-  StatusMsg: "Configuring firewall rule…"
+  StatusMsg: "Configuring UDP firewall rule…"
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$exe = '{app}\{#AppExe}'; Remove-NetFirewallRule -DisplayName '{#TcpFirewallRule}' -ErrorAction SilentlyContinue; Get-NetFirewallApplicationFilter -Program $exe | Get-NetFirewallRule | Where-Object Action -eq Block | Remove-NetFirewallRule; New-NetFirewallRule -DisplayName '{#TcpFirewallRule}' -Direction Inbound -Protocol TCP -Program $exe -Action Allow"""; \
+  Verb: runas; Flags: shellexec runhidden waituntilterminated; Tasks: firewalltcp; \
+  StatusMsg: "Configuring TCP firewall rule…"
 Filename: "{app}\{#AppExe}"; Description: "Start {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -Command ""Remove-NetFirewallRule -DisplayName '{#FirewallRule}' -ErrorAction SilentlyContinue"""; \
+  Parameters: "-NoProfile -Command ""Remove-NetFirewallRule -DisplayName '{#FirewallRule}','{#TcpFirewallRule}' -ErrorAction SilentlyContinue"""; \
   Verb: runas; Flags: shellexec runhidden waituntilterminated; RunOnceId: "RemoveFirewallRule"; Check: FirewallRuleExists
 
 [Code]
@@ -72,6 +78,6 @@ var
 begin
   // reading needs no admin rights; only ask for elevation if there is something to remove
   Result := Exec('powershell.exe',
-    '-NoProfile -Command "if (Get-NetFirewallRule -DisplayName ''{#FirewallRule}'' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"',
+    '-NoProfile -Command "if (Get-NetFirewallRule -DisplayName ''{#FirewallRule}'',''{#TcpFirewallRule}'' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;

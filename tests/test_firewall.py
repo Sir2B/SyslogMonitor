@@ -55,6 +55,41 @@ def test_missing_rule_with_default_block_warns():
     assert "not allowed" in check.summary
 
 
+def test_tcp_rules_are_evaluated_independently_of_udp_rules():
+    rules = (Rule("udp allow", block=False, protocol=firewall.PROTOCOL_UDP, local_ports="514"),
+             Rule("tcp block", block=True, protocol=firewall.PROTOCOL_TCP, local_ports="6514"))
+    assert assess(state(*rules), 514, (PY,), "UDP").level == Level.OK
+    check = assess(state(*rules), 6514, (PY,), "TCP")
+    assert check.level == Level.ERROR
+    assert "TCP 6514" in check.summary and "tcp block" in check.details[0]
+    assert assess(state(*rules), 514, (PY,), "TCP").level == Level.WARNING
+    assert "'TCP'" in firewall._PS_SCRIPT and "'6'" in firewall._PS_SCRIPT
+
+
+def test_combined_check_reads_policy_once_and_offers_the_correct_rules(monkeypatch):
+    policy = state(Rule("udp allow", block=False, protocol=firewall.PROTOCOL_UDP, local_ports="514"))
+    reads = []
+    monkeypatch.setattr(firewall.sys, "platform", "win32")
+    monkeypatch.setattr(firewall, "read_state", lambda: reads.append(True) or policy)
+    monkeypatch.setattr(firewall, "current_programs", lambda: (PY,))
+
+    check = firewall.check_firewalls("0.0.0.0", (("UDP", 514), ("TCP", 6514)))
+    assert len(reads) == 1
+    assert check.level == Level.WARNING
+    assert "UDP 514 is allowed" in check.summary and "TCP 6514 is not allowed" in check.summary
+    assert any("TCP 6514:" in detail for detail in check.details)
+    lines, command = firewall.remedy(check, 514, PY)
+    assert "TCP 6514:" in lines
+    assert "-Protocol TCP -LocalPort 6514" in command
+    assert "-Protocol UDP" not in command
+
+    monkeypatch.setattr(firewall, "read_state", lambda: state())
+    check = firewall.check_firewalls("0.0.0.0", (("UDP", 514), ("TCP", 6514)))
+    _, command = firewall.remedy(check, 514, PY)
+    assert "-Protocol UDP -LocalPort 514" in command
+    assert "-Protocol TCP -LocalPort 6514" in command
+
+
 def test_rule_for_other_profile_does_not_apply():
     rule = Rule("python.exe", block=False, application=PY, profiles=DOMAIN | PUBLIC)
     assert assess(state(rule, active=PRIVATE), 514, (PY,)).level == Level.WARNING

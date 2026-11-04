@@ -18,6 +18,7 @@ from PySide6.QtCore import QLockFile
 
 from syslog_monitor import app as app_module
 from syslog_monitor.config import load_settings
+from syslog_monitor.stats import StatsSnapshot
 
 
 def free_udp_port() -> int:
@@ -124,6 +125,51 @@ def test_start_receive_and_quit(tmp_path):
     assert answer["result"]["structuredContent"]["total_matches"] == 1, result.stdout
     log_text = (cfg / "logs" / "syslog_monitor.log").read_text(encoding="utf-8")
     assert "MCP server is running" in log_text and "stopped" in log_text
+
+
+def test_autostart_tcp_only_receives_messages(tmp_path):
+    cfg = tmp_path / "SyslogMonitor"
+    cfg.mkdir()
+    port = free_tcp_port()
+    write_settings(cfg, udp_enabled=False, tcp_enabled=True, tcp_port=port, mcp_enabled=False)
+    script = textwrap.dedent(f"""
+        import socket, sys
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        from syslog_monitor.app import main
+
+        app = QApplication([])
+        def send():
+            with socket.create_connection(("127.0.0.1", {port}), timeout=5) as client:
+                message = b"<14>1 - host app - - - tcp octets"
+                client.sendall(b"<14>1 - host app - - - tcp line\\n"
+                               + str(len(message)).encode() + b" " + message)
+        QTimer.singleShot(500, send)
+        QTimer.singleShot(1800, app.quit)
+        sys.exit(main([]))
+    """)
+    env = {**os.environ, "LOCALAPPDATA": str(tmp_path), "QT_QPA_PLATFORM": "offscreen",
+           "PYTHONPATH": str(Path(app_module.__file__).parents[1])}
+    result = subprocess.run([sys.executable, "-c", script], env=env, timeout=30,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with closing(sqlite3.connect(cfg / "data" / "syslog.sqlite3")) as conn:
+        assert {row[0] for row in conn.execute("SELECT message FROM events")} == {"tcp line", "tcp octets"}
+    log_text = (cfg / "logs" / "syslog_monitor.log").read_text(encoding="utf-8")
+    assert "TCP listener started" in log_text and "UDP listener started" not in log_text
+
+
+def test_mcp_receiver_status_keeps_primary_address_and_lists_transports():
+    snap = StatsSnapshot(listener_state="running", listener_address="127.0.0.1:514",
+                         listener_endpoints=(("UDP", "127.0.0.1", 514), ("TCP", "127.0.0.1", 6514)),
+                         dropped_queue_full=1, dropped_write_error=2, dropped_tcp_framing=3,
+                         tcp_connections_rejected=4)
+    status = app_module.receiver_status(snap)
+    assert status["address"] == "127.0.0.1:514"
+    assert status["listeners"] == [{"protocol": "UDP", "address": "127.0.0.1:514"},
+                                   {"protocol": "TCP", "address": "127.0.0.1:6514"}]
+    assert status["dropped_since_start"] == 6
+    assert status["tcp_connections_rejected_since_start"] == 4
 
 
 def test_second_instance_is_refused(config_dir):
