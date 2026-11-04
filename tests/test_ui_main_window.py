@@ -71,8 +71,14 @@ def test_time_controls_are_grouped_with_minimap(qtbot, window):
 
 
 def test_top_rules_scroll_without_shrinking_message_list(qtbot, window):
+    def settle_rules_layout():
+        # The panel height is updated by a timer before its parent layout is recalculated.
+        qtbot.waitUntil(lambda: not window._rules_height_timer.isActive())
+        window.centralWidget().layout().activate()
+
     window.resize(1300, 750)
     qtbot.wait(20)
+    settle_rules_layout()
     height = window.rules_splitter.height()
     table_height = window.table.height()
     for i in range(12):
@@ -80,6 +86,7 @@ def test_top_rules_scroll_without_shrinking_message_list(qtbot, window):
         window.filter_bar.add_rule(FilterRule(value=f"filter {i}"))
     qtbot.waitUntil(lambda: window.highlights_scroll.verticalScrollBar().maximum() > 0
                     and window.filters_scroll.verticalScrollBar().maximum() > 0)
+    settle_rules_layout()
     qtbot.waitUntil(lambda: window.rules_splitter.height() >= height)
     assert window.rules_splitter.height() >= height
     assert window.table.height() <= table_height

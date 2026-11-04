@@ -332,6 +332,13 @@ $env:SYSLOG_MONITOR_SLOW_TESTS = 1  # enable load tests (~3.5 minutes)
 pytest -q -m slow
 ```
 
+GitHub Actions runs the non-slow tests on Windows with Python 3.11 for pushes to
+`main` and pull requests targeting `main` ([workflow](.github/workflows/ci.yml)).
+After the first successful run, a repository administrator can use **Settings >
+Branches > Add branch protection rule** for `main`, enable **Require status checks
+to pass before merging**, and select **Windows tests (Python 3.11)**. Slow tests
+remain opt-in and are not run in CI.
+
 Load tests exercise 2.6 million messages, query performance, retention on a large data
 set, and live UDP reception. A multi-day soak test is not automated. Before production
 use, run the application with real sources for several days and monitor the status bar
