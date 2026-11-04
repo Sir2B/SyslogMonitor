@@ -60,7 +60,7 @@ jobs:
         shell: pwsh
         run: |
           $source = Get-Content ".\src\syslog_monitor\__init__.py" -Raw
-          $version = [regex]::Match($source, '(?m)^__version__ = "([^"]+)"$').Groups[1].Value
+          $version = [regex]::Match($source, '__version__\s*=\s*"([^"]+)"').Groups[1].Value
           if (-not $version) {
             throw "Could not read the application version."
           }
