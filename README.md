@@ -82,9 +82,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\packaging\build.ps1"   # 
 
 The command also works from another directory when given the absolute script path.
 
-Requirements: Python 3.11 (`py -3.11`) and, for the installer, [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+Requirements: Python 3.15 (`py -3.15`) and, for the installer, [Inno Setup 6](https://jrsoftware.org/isinfo.php)
 (`winget install JRSoftware.InnoSetup --scope user`). Without Inno Setup, only the ZIP
-is produced. The virtual environment and PyInstaller intermediates are stored in
+is produced. Pass `-PythonVersion 3.11` to build with Python 3.11 instead. The build
+checks that a reused build environment matches the requested Python version. The
+virtual environment and PyInstaller intermediates are stored in
 `%LOCALAPPDATA%\SyslogMonitor-build`. Output is written to `dist\`:
 
 | File | Purpose |
@@ -332,15 +334,16 @@ $env:SYSLOG_MONITOR_SLOW_TESTS = 1  # enable load tests (~3.5 minutes)
 pytest -q -m slow
 ```
 
-GitHub Actions runs the non-slow tests on Windows with Python 3.11 for pushes to
+GitHub Actions runs the non-slow tests on Windows with Python 3.11 and 3.15, and
+builds and verifies the installer and portable ZIP with Python 3.15 for pushes to
 `main` and pull requests targeting `main` ([workflow](.github/workflows/ci.yml)).
 After the first successful run, a repository administrator can use **Settings >
 Branches > Add branch protection rule** for `main`, enable **Require status checks
 to pass before merging**, and select **Windows tests (Python 3.11)**. Slow tests
-remain opt-in and are not run in CI.
+remain opt-in and are not run in CI. The Python 3.11 test remains the required check;
+the Python 3.15 tests and packaging job provide additional compatibility coverage.
 
 Load tests exercise 2.6 million messages, query performance, retention on a large data
 set, and live UDP reception. A multi-day soak test is not automated. Before production
 use, run the application with real sources for several days and monitor the status bar
 and `logs\`.
-

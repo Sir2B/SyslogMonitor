@@ -14,7 +14,8 @@
 #>
 param(
     [switch]$SkipTests,
-    [string]$PythonVersion = "3.11",
+    [string]$PythonVersion = "3.15",
+    [string]$PythonExecutable,
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA "SyslogMonitor-build")
 )
 $ErrorActionPreference = "Stop"
@@ -31,7 +32,26 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
 
 Write-Host "== Build-Umgebung: $Venv"
 if (-not (Test-Path $VenvPy)) {
-    Invoke-Checked "py" @("-$PythonVersion", "-m", "venv", $Venv)
+    if ($PythonExecutable) {
+        if (-not (Test-Path -LiteralPath $PythonExecutable -PathType Leaf)) {
+            throw "Python executable not found: $PythonExecutable"
+        }
+        Invoke-Checked $PythonExecutable @("-m", "venv", $Venv)
+    } else {
+        Invoke-Checked "py" @("-$PythonVersion", "-m", "venv", $Venv)
+    }
+}
+$PythonVersionParts = $PythonVersion.Split(".")
+if ($PythonVersionParts.Count -lt 2 -or
+    $PythonVersionParts[0] -notmatch '^\d+$' -or
+    $PythonVersionParts[1] -notmatch '^\d+$') {
+    throw "PythonVersion must include at least a major and minor version: $PythonVersion"
+}
+$ExpectedPythonVersion = "$($PythonVersionParts[0]).$($PythonVersionParts[1])"
+$BuildPythonVersion = (& $VenvPy -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
+if ($LASTEXITCODE -ne 0) { throw "Could not read the Python version in the build environment: $VenvPy" }
+if ($BuildPythonVersion -ne $ExpectedPythonVersion) {
+    throw "Build environment uses Python $BuildPythonVersion; expected $ExpectedPythonVersion. Use a fresh -WorkRoot."
 }
 Invoke-Checked $VenvPy @("-m", "pip", "install", "--quiet", "--upgrade", "pip")
 Invoke-Checked $VenvPy @("-m", "pip", "install", "--quiet", "$ProjectRoot[test]", "pyinstaller>=6.10")
