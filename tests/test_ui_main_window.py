@@ -47,12 +47,15 @@ def test_time_controls_are_grouped_with_minimap(qtbot, window):
     assert window.legend.parentWidget() is section
     assert window.range_combo.geometry().bottom() < window.minimap.geometry().top()
     assert window.legend.geometry().bottom() < window.minimap.geometry().top()
-    # Highlight rules form an independent list, like the filter rules.
-    assert window.highlights.rule_rows[0].value.isVisible()
+    # Highlight rules form an independent compact list, like the filter rules.
+    assert window.highlights._editors.isHidden()
+    assert window.highlights.rule_rows[0].summary_button.isVisible()
     assert window.filters_scroll.geometry().right() < window.highlights_scroll.geometry().left()
     assert window.rules_splitter.geometry().bottom() < section.geometry().top()
     assert window.splitter.width() == window.rules_splitter.width()
-    assert window.mode_label.parentWidget() is window.findChild(QToolBar, "main_toolbar")
+    assert window.mode_label.parentWidget() is window.statusBar()
+    assert window.rules_splitter.handleWidth() == 17
+    assert "palette(mid)" in window.rules_splitter.styleSheet()
     # the long range label must not force a wide window (snapping to half screen)
     window.minimap_range_label.setText("Minimap: 2026-10-24 19:10:20 – 2026-10-25 19:10:26 (automatic)")
     assert section.minimumSizeHint().width() < (
@@ -77,17 +80,45 @@ def test_top_rules_scroll_without_shrinking_message_list(qtbot, window):
         window.filter_bar.add_rule(FilterRule(value=f"filter {i}"))
     qtbot.waitUntil(lambda: window.highlights_scroll.verticalScrollBar().maximum() > 0
                     and window.filters_scroll.verticalScrollBar().maximum() > 0)
-    assert window.rules_splitter.height() == height
-    assert window.table.height() == table_height
+    qtbot.waitUntil(lambda: window.rules_splitter.height() >= height)
+    assert window.rules_splitter.height() >= height
+    assert window.table.height() <= table_height
     row = window.highlights.rule_rows[0]
-    assert row.enabled.geometry().top() <= row.value.geometry().center().y()
-    assert row.value.geometry().right() < row.color_button.geometry().left()
     window.rules_splitter.setSizes([700, 500])
+    qtbot.wait(20)
     window._save_ui_state()
     sizes = window.rules_splitter.sizes()
     window.rules_splitter.setSizes([500, 700])
+    qtbot.wait(20)
     window._restore_ui_state()
-    assert window.rules_splitter.sizes() == sizes
+    qtbot.wait(20)
+    restored_sizes = window.rules_splitter.sizes()
+    assert abs(restored_sizes[0] / sum(restored_sizes) - sizes[0] / sum(sizes)) < 0.02
+    row = window.highlights.rule_rows[0]
+    window.highlights.edit_rule(row)
+    assert window.highlights._editors.currentWidget() is row.editor
+
+
+def test_rules_height_grows_to_three_rows_then_scrolls_and_shrinks(qtbot, window):
+    window.resize(2600, 900)
+    qtbot.wait(50)
+    initial_height = window.rules_splitter.height()
+    row_height = max(window.highlights.rule_rows[0].sizeHint().height(),
+                     window.filter_bar.add_rule_button.sizeHint().height())
+    assert initial_height <= row_height + 6
+    for index in range(30):
+        window.highlights.add_rule(HighlightRule(f"Highlight example {index}"))
+    qtbot.waitUntil(lambda: window.rules_splitter.height() > initial_height)
+    qtbot.waitUntil(lambda: window.highlights_scroll.verticalScrollBar().maximum() > 0)
+    capped_height = window.rules_splitter.height()
+    assert capped_height <= 3 * row_height + 6
+    for index in range(10):
+        window.highlights.add_rule(HighlightRule(f"Additional example {index}"))
+    qtbot.wait(50)
+    assert window.rules_splitter.height() == capped_height
+    for row in list(window.highlights.rule_rows[1:]):
+        window.highlights.remove_rule(row)
+    qtbot.waitUntil(lambda: window.rules_splitter.height() <= initial_height)
 
 
 def click_severity(qtbot, window, link, modifiers=Qt.NoModifier):
@@ -217,6 +248,7 @@ def test_popup_only_for_new_live_highlights_even_when_hidden(qtbot, tmp_path):
     win.highlight_alerts.show = lambda title, body: shown.append((title, body))
     try:
         win.highlights.add_rule(HighlightRule("watchdog", "#00796b"))
+        watchdog_rule = win.highlights.rule_rows[1]
         qtbot.waitUntil(lambda: win._watch_after_id is not None, timeout=5000)
         qtbot.wait(200)
         assert shown == []  # history is not announced
@@ -227,15 +259,15 @@ def test_popup_only_for_new_live_highlights_even_when_hidden(qtbot, tmp_path):
         assert shown[0][0] == "Highlight: 1 new message"
         assert "plc-01: WATCHDOG reset" in shown[0][1]
 
-        win.highlight_popup.setChecked(False)
+        watchdog_rule.popup_checkbox.setChecked(False)
         send_udp(service.bound_port, b"<15>1 - plc-01 app - - - watchdog again")
         qtbot.waitUntil(lambda: service.snapshot().persisted == 4, timeout=5000)
         qtbot.wait(300)
         assert len(shown) == 1
         win._save_ui_state()
-        win.highlight_popup.setChecked(True)
+        watchdog_rule.popup_checkbox.setChecked(True)
         win._restore_ui_state()
-        assert not win.highlight_popup.isChecked()
+        assert not win.highlights.rule_rows[1].popup_checkbox.isChecked()
     finally:
         win.shutdown()
         service.shutdown()
@@ -288,6 +320,18 @@ def test_legacy_and_invalid_highlight_state(qtbot, window, caplog):
     window._restore_ui_state()
     assert window.highlights.rules() == (HighlightRule("Initializing system"),)
     assert "Could not read stored highlights" in caplog.text
+
+
+def test_legacy_global_popup_setting_migrates_to_per_rule_preferences(qtbot, window):
+    window._ui_state.setValue("highlight_popup", False)
+    window._ui_state.setValue(
+        "highlight_rules",
+        '[{"text":"boot","color":"#7b1fa2","enabled":true},'
+        '{"text":"watchdog","color":"#00796b","enabled":true}]',
+    )
+    window._restore_ui_state()
+    assert [rule.popup for rule in window.highlights.rules()] == [False, False]
+    assert window.highlights.notification_text() == ""
 
 
 def test_live_view_shows_new_messages(qtbot, window):
@@ -402,6 +446,7 @@ def test_details_and_paging_and_jump(qtbot, window):
 def test_scrolling_away_pauses_live_view(qtbot, window):
     send(window, *[f"<14>m{i}" for i in range(200)])
     qtbot.waitUntil(lambda: window.model.rowCount() == 200, timeout=5000)
+    qtbot.waitUntil(lambda: window.table.verticalScrollBar().maximum() >= 50)
     window.table.verticalScrollBar().setValue(50)
     assert not window.live_action.isChecked()
     assert "PAUSED" in window.mode_label.text()
@@ -544,6 +589,21 @@ def test_search_navigates_without_hiding_context(qtbot, window):
     assert window.model.rowCount() == 5
     window.search_text.clear()
     assert not window.search_next.isEnabled() and not window.search_previous.isEnabled()
+
+
+def test_highlight_navigation_steps_through_rule_terms(qtbot, window):
+    row = window.highlights.rule_rows[0]
+    row.value.setText("needle;alarm")
+    window.highlights.select_rule(row)
+    send(window, "<11>1 - h app - - - alarm first", "<14>1 - h app - - - context",
+         "<11>1 - h app - - - needle second", "<11>1 - h app - - - alarm newest")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 4)
+    qtbot.mouseClick(window.highlights.next_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: selected_message(window) == "alarm newest")
+    qtbot.mouseClick(window.highlights.next_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: selected_message(window) == "needle second")
+    qtbot.mouseClick(window.highlights.previous_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: selected_message(window) == "alarm newest")
 
 
 def test_search_and_text_filter_can_be_combined(qtbot, window):

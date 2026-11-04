@@ -135,9 +135,10 @@ def test_highlight_rule_rejects_invalid_persisted_values():
     import pytest
 
     for kwargs in ({"color": "red"}, {"color": "#fff"}, {"text": None},
-                   {"enabled": "false"}, {"color": None}):
+                   {"enabled": "false"}, {"popup": "false"}, {"color": None}):
         with pytest.raises(ValueError):
             HighlightRule(**kwargs)
+    assert HighlightRule().popup
 
 
 def test_new_highlights_since_id_ignores_view_filter(store):
@@ -281,6 +282,23 @@ def test_find_match_modes_empty_and_no_result(store):
     assert q.find_match(EventFilter(), "e%17", TEXT_MODE_SUBSTRING) is None
     for text in ("", "  ", "!!!", "missing"):
         assert q.find_match(EventFilter(), text, "words") is None
+
+
+def test_find_highlight_match_steps_through_separated_terms(store):
+    q = fill(store, [
+        make_event(0, message="first alarm", app_name="wanted"),
+        make_event(1, message="context", app_name="wanted"),
+        make_event(2, message="second needle", app_name="wanted"),
+        make_event(3, message="not a message match", hostname="alarm-host", app_name="wanted"),
+        make_event(4, message="excluded alarm", app_name="other"),
+    ])
+    f = EventFilter(rules=(FilterRule("app", "equals", "wanted"),))
+    newest = q.find_highlight_match(f, "alarm; needle")
+    assert newest.message == "second needle"
+    older = q.find_highlight_match(f, "alarm; needle", newest.cursor)
+    assert older.message == "first alarm"
+    assert q.find_highlight_match(f, "alarm; needle", older.cursor) is None
+    assert q.find_highlight_match(f, "alarm; needle", older.cursor, newer=True) == newest
 
 
 def test_filtered_time_bounds(store):

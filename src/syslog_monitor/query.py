@@ -65,9 +65,11 @@ class HighlightRule:
     text: str = ""
     color: str = DEFAULT_HIGHLIGHT_COLOR
     enabled: bool = True
+    popup: bool = True
 
     def __post_init__(self) -> None:
-        if not isinstance(self.text, str) or not isinstance(self.enabled, bool):
+        if not isinstance(self.text, str) or not isinstance(self.enabled, bool) \
+                or not isinstance(self.popup, bool):
             raise ValueError("Invalid highlight rule")
         if not isinstance(self.color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", self.color):
             raise ValueError("Highlight color must be #RRGGBB")
@@ -300,6 +302,25 @@ class QueryRunner:
         search_where, search_params = build_where(EventFilter(text=text, text_mode=text_mode))
         matches = f"({where}) AND ({search_where})"
         params += search_params
+        if cursor is not None:
+            matches += f" AND (received_at, id) {'>' if newer else '<'} (?, ?)"
+            params += list(cursor)
+        order = "ASC" if newer else "DESC"
+        rows = self._rows(
+            f"SELECT {_ROW_COLUMNS} FROM events WHERE {matches} "
+            f"ORDER BY received_at {order}, id {order} LIMIT 1", params)
+        return rows[0] if rows else None
+
+    def find_highlight_match(self, f: EventFilter, text: str, cursor: Cursor | None = None,
+                             *, newer: bool = False) -> EventRow | None:
+        """Find the next row matching any text in a semicolon-separated highlight rule."""
+        parts = parse_highlights(text)
+        if not parts:
+            return None
+        where, params = build_where(f)
+        search_where, search_params = highlight_sql(text)
+        matches = f"({where}) AND ({search_where})"
+        params.extend(search_params)
         if cursor is not None:
             matches += f" AND (received_at, id) {'>' if newer else '<'} (?, ?)"
             params += list(cursor)

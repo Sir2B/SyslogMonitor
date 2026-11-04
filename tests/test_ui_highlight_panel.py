@@ -49,12 +49,47 @@ def test_color_dialog_accept_and_cancel(qtbot, monkeypatch):
 def test_state_roundtrip_preserves_empty_disabled_order_and_colors(qtbot):
     panel = HighlightPanel()
     qtbot.addWidget(panel)
-    state = [{"text": "Boot", "color": "#123456", "enabled": False},
-             {"text": "", "color": "#abcdef", "enabled": True}]
+    state = [{"text": "Boot", "color": "#123456", "enabled": False, "popup": False},
+             {"text": "", "color": "#abcdef", "enabled": True, "popup": True}]
     panel.restore_state(state)
     assert panel.state() == state
     panel.restore_state([])
     assert panel.rules() == ()
+
+
+def test_highlight_rows_are_compact_until_edited(qtbot):
+    panel = HighlightPanel()
+    qtbot.addWidget(panel)
+    row = panel.rule_rows[0]
+    assert panel._editors.isHidden()
+    assert row.summary_button.text() == "Initializing system"
+    row.edit_button.click()
+    assert panel._editors.currentWidget() is row.editor and not panel._editors.isHidden()
+    row.edit_button.click()
+    assert panel._editors.isHidden()
+
+
+def test_popup_notifications_are_selected_per_rule(qtbot):
+    panel = HighlightPanel()
+    qtbot.addWidget(panel)
+    panel.restore_state([
+        {"text": "boot", "color": "#7b1fa2", "enabled": True, "popup": False},
+        {"text": "watchdog", "color": "#00796b", "enabled": True, "popup": True},
+        {"text": "noise", "color": "#1565c0", "enabled": False, "popup": True},
+    ])
+    assert panel.notification_text() == "watchdog"
+
+
+def test_highlight_chips_flow_side_by_side_with_embedded_pencil(qtbot):
+    panel = HighlightPanel()
+    qtbot.addWidget(panel)
+    panel.resize(600, 180)
+    panel.show()
+    first = panel.rule_rows[0]
+    second = panel.add_rule(HighlightRule("Second rule", "#00796b"))
+    qtbot.waitUntil(lambda: second.geometry().y() > first.geometry().y())
+    assert first.geometry().y() == panel.add_rule_button.geometry().y()
+    assert first.edit_button.parentWidget() is first.chip
 
 
 def test_counts_follow_rule_order_including_duplicates_and_inactive_rows(qtbot):

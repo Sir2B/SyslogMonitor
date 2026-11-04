@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, QSettings, Qt, QTimer, Slot
+from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
@@ -100,6 +100,8 @@ class MainWindow(QMainWindow):
         self._adjusting_scroll = False
         self._search_cursor: Cursor | None = None
         self._search_revision = 0
+        self._highlight_cursor: Cursor | None = None
+        self._highlight_revision = 0
         self._watch_after_id: int | None = None
         self._watch_request: int | None = None
         self._rate_tracker = RateTracker()
@@ -181,7 +183,7 @@ class MainWindow(QMainWindow):
         refresh_action.triggered.connect(self.refresh_all)
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
-        for item in (self.listen_action, self.live_action, self.mode_label, None, refresh_action, None,
+        for item in (self.listen_action, self.live_action, None, refresh_action, None,
                      settings_action, quit_action):
             if item is None:
                 toolbar.addSeparator()
@@ -269,12 +271,8 @@ class MainWindow(QMainWindow):
 
         self.model = EventTableModel(MAX_ROWS, self)
         self.highlights = HighlightPanel()
-        self.highlight_popup = self.highlights.popup
-        self.highlight_popup.setToolTip(
-            "Show a Windows notification when a newly received message matches a highlight,\n"
-            "even while the window is minimized to the tray. Matches are grouped\n"
-            f"(at most one notification every {MIN_INTERVAL_S:.0f} s). Click to open the window.")
-        self.highlight_popup.toggled.connect(self._highlight_popup_toggled)
+        self.highlights.find_requested.connect(self.find_highlight)
+        self.highlights.selected_rule_changed.connect(self._reset_highlight_navigation)
         self.highlight_label = self.highlights.summary
         self._highlight_timer = QTimer(self, singleShot=True, interval=300)
         self._highlight_timer.timeout.connect(self._request_histogram)
@@ -321,17 +319,26 @@ class MainWindow(QMainWindow):
         self.highlights_scroll = QScrollArea(widgetResizable=True)
         self.filter_bar.layout().setAlignment(Qt.AlignTop)
         self.rules_splitter = QSplitter(Qt.Horizontal)
-        self.rules_splitter.setFixedHeight(124)
+        self.rules_splitter.setHandleWidth(17)
+        self.rules_splitter.setStyleSheet(
+            "QSplitter::handle:horizontal { background: palette(mid); "
+            "border-left: 8px solid palette(window); border-right: 8px solid palette(window); }"
+        )
+        self._rules_height_timer = QTimer(self, singleShot=True)
+        self._rules_height_timer.timeout.connect(self._update_rules_height)
         for scroll, panel in ((self.filters_scroll, self.filter_bar),
                               (self.highlights_scroll, self.highlights)):
             scroll.setFrameShape(QScrollArea.NoFrame)
             scroll.setWidget(panel)
             scroll.setMinimumWidth(200)
+            panel.installEventFilter(self)
+            scroll.viewport().installEventFilter(self)
             self.rules_splitter.addWidget(scroll)
         for index in (0, 1):
             self.rules_splitter.setCollapsible(index, False)
             self.rules_splitter.setStretchFactor(index, 1)
         self.rules_splitter.setSizes([750, 550])
+        self._rules_height_timer.start(0)
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -351,6 +358,7 @@ class MainWindow(QMainWindow):
         self.mcp_label = QLabel()
         self.mcp_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
         self.mcp_label.linkActivated.connect(self.show_mcp_details)
+        self.statusBar().addWidget(self.mode_label)
         for widget in (self.listener_label, self.firewall_label, self.mcp_label, self.counter_label,
                        self.storage_label):
             widget.setTextFormat(Qt.RichText)
@@ -362,6 +370,30 @@ class MainWindow(QMainWindow):
     def _range_duration(self) -> int | None:
         index = self.range_combo.currentIndex()
         return RANGE_PRESETS[index][1] if index < len(RANGE_PRESETS) else None
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() in (QEvent.Resize, QEvent.LayoutRequest):
+            self._rules_height_timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def _update_rules_height(self) -> None:
+        required_heights = []
+        row_height = 0
+        for scroll, panel in ((self.filters_scroll, self.filter_bar),
+                              (self.highlights_scroll, self.highlights)):
+            flow = panel._flow_layout
+            width = max(1, scroll.viewport().width())
+            required = flow.heightForWidth(width)
+            row_height = max(row_height, max(
+                (flow.itemAt(index).sizeHint().height() for index in range(flow.count())),
+                default=0))
+            if not panel._editors.isHidden():
+                required += panel.layout().spacing() + panel._editors.sizeHint().height()
+            panel.setMinimumHeight(required)
+            required_heights.append(required)
+        height = min(max(required_heights), 3 * row_height + 6)
+        if self.rules_splitter.height() != height:
+            self.rules_splitter.setFixedHeight(height)
 
     def custom_bounds(self) -> Bounds | None:
         """From/To bounds of the custom range; To includes the whole displayed second."""
@@ -418,6 +450,7 @@ class MainWindow(QMainWindow):
         """Discard all in-flight queries and reload list and minimap."""
         self.queries.new_generation()
         self._reset_search()
+        self._reset_highlight_navigation()
         self._older_request = self._newer_request = self._live_request = self._hist_request = None
         f = self.list_filter()
         self.queries.submit(lambda r: r.fetch_older(f, None, PAGE_SIZE + 1), self._apply_head)
@@ -454,20 +487,15 @@ class MainWindow(QMainWindow):
             self._watch_request = self.queries.submit(
                 lambda r: r.max_id(), lambda last: self._apply_highlight_batch(HighlightBatch(last, 0, [])))
             return
-        highlight = self.highlights.notification_text() if self.highlight_popup.isChecked() else ""
+        highlight = self.highlights.notification_text()
         self._watch_request = self.queries.submit(
             lambda r: r.new_highlights(after, highlight, MAX_LISTED), self._apply_highlight_batch)
 
     def _apply_highlight_batch(self, batch: HighlightBatch) -> None:
         self._watch_after_id = max(batch.last_id, self._watch_after_id or 0)
-        if batch.count and self.highlight_popup.isChecked():
+        if batch.count:
             self.highlight_alerts.add(batch)
             self.highlight_alerts.flush()
-
-    def _highlight_popup_toggled(self, checked: bool) -> None:
-        self.highlight_alerts.enabled = checked
-        if not checked:
-            self.highlight_alerts.clear()
 
     def _show_highlight_alert(self, title: str, body: str) -> None:
         if self.tray:
@@ -610,6 +638,42 @@ class MainWindow(QMainWindow):
         enabled = bool(self.search_text.text().strip())
         self.search_next.setEnabled(enabled)
         self.search_previous.setEnabled(enabled)
+
+    def _reset_highlight_navigation(self, *_args) -> None:
+        self._highlight_revision += 1
+        self._highlight_cursor = None
+
+    def find_highlight(self, text: str, newer: bool = False) -> None:
+        if not text.strip():
+            return
+        self.set_live(False)
+        self.queries.new_generation()
+        self._older_request = self._newer_request = self._live_request = None
+        self._highlight_revision += 1
+        revision = self._highlight_revision
+        cursor = self._highlight_cursor
+        f = self.list_filter()
+        self.search_result.setText("Searching highlight matchesÔÇª")
+
+        def job(runner: QueryRunner):
+            hit = runner.find_highlight_match(f, text, cursor, newer=bool(cursor and newer))
+            context = None if hit is None else runner.fetch_context(
+                f, hit.cursor, PAGE_SIZE + 1, PAGE_SIZE // 2 + 1)
+            return hit, context
+
+        def apply(result) -> None:
+            if revision != self._highlight_revision:
+                return
+            hit, context = result
+            if hit is None:
+                self.search_result.setText("No more highlight matches" if cursor else "No highlight matches")
+                return
+            self._highlight_cursor = hit.cursor
+            self._apply_jump(context, PAGE_SIZE, PAGE_SIZE // 2)
+            self.search_result.setText("Highlight match selected")
+
+        self.queries.submit(job, apply)
+        self._request_histogram()
 
     def find_text(self, *, newer: bool = False) -> None:
         text = self.search_text.text().strip()
@@ -1018,27 +1082,33 @@ class MainWindow(QMainWindow):
         s.setValue("range_to", "" if custom[1] is None else str(custom[1] - 1))
         s.setValue("filters", json.dumps(self.filter_bar.state()))
         s.setValue("highlight_rules", json.dumps(self.highlights.state()))
-        s.setValue("highlight_popup", self.highlight_popup.isChecked())
         s.sync()
 
     def _restore_ui_state(self) -> None:
         s = self._ui_state
         stored_rules = s.value("highlight_rules")
+        legacy_popup = str(s.value("highlight_popup", True)).lower() not in ("false", "0")
         try:
             if stored_rules is None:
                 # Existing installations retain their texts and purple colour.
                 legacy = str(s.value("highlight_text", DEFAULT_HIGHLIGHT))
                 self.highlights.restore_state([
-                    {"text": legacy, "color": HighlightRule().color, "enabled": True}])
+                    {"text": legacy, "color": HighlightRule().color, "enabled": True,
+                     "popup": legacy_popup}])
             else:
-                self.highlights.restore_state(json.loads(stored_rules))
+                rules = json.loads(stored_rules)
+                if isinstance(rules, list):
+                    for rule in rules:
+                        if isinstance(rule, dict):
+                            rule.setdefault("popup", legacy_popup)
+                self.highlights.restore_state(rules)
         except (TypeError, ValueError):
             log.warning("Could not read stored highlights; using defaults")
             self.statusBar().showMessage("Could not read stored highlights — using defaults", 10000)
             self.highlights.restore_state([{"text": DEFAULT_HIGHLIGHT,
-                                           "color": HighlightRule().color, "enabled": True}])
+                                           "color": HighlightRule().color, "enabled": True,
+                                           "popup": legacy_popup}])
         self.model.set_highlight_rules(self.highlights.rules())
-        self.highlight_popup.setChecked(str(s.value("highlight_popup", True)).lower() not in ("false", "0"))
         for key, restore in (("geometry", self.restoreGeometry), ("window_state", self.restoreState),
                              ("splitter", self.splitter.restoreState),
                              ("rules_splitter", self.rules_splitter.restoreState),

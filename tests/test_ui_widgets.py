@@ -11,6 +11,63 @@ def test_format_helpers():
     assert format_count(1234567) == "1,234,567"
 
 
+def test_filter_dropdowns_have_equal_height(qtbot):
+    bar = FilterBar()
+    qtbot.addWidget(bar)
+    bar.show()
+    assert bar.severity_button.height() == bar.facility.height() == bar.rules_match.height()
+
+
+def test_rule_delete_controls_remain_visible_without_hover(qtbot):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QEnterEvent
+    from PySide6.QtWidgets import QApplication
+
+    from syslog_monitor.ui.highlight_panel import HighlightPanel
+
+    bar = FilterBar()
+    highlights = HighlightPanel()
+    for panel in (bar, highlights):
+        qtbot.addWidget(panel)
+        panel.show()
+    filter_row = bar.add_rule(FilterRule(value="example"))
+    for row in (filter_row, highlights.rule_rows[0]):
+        QApplication.sendEvent(row, QEvent(QEvent.Leave))
+        assert not row.remove_button.isHidden()
+        before = row.sizeHint()
+        QApplication.sendEvent(row, QEnterEvent(QPointF(1, 1), QPointF(1, 1), QPointF(1, 1)))
+        assert not row.remove_button.isHidden()
+        assert row.sizeHint() == before
+        assert row.remove_button.parentWidget() is row.chip
+        assert row.editor.layout().indexOf(row.remove_button) == -1
+        QApplication.sendEvent(row, QEvent(QEvent.Leave))
+        assert not row.remove_button.isHidden()
+        assert row.sizeHint() == before
+    filter_row.remove_button.click()
+    assert bar.rule_rows == []
+    highlights.rule_rows[0].remove_button.click()
+    assert highlights.rule_rows == []
+
+
+def test_flow_layout_keeps_items_together_until_they_overflow(qtbot):
+    from PySide6.QtWidgets import QPushButton, QWidget
+
+    from syslog_monitor.ui.flow_layout import FlowLayout
+
+    panel = QWidget()
+    layout = FlowLayout(panel, horizontal_spacing=0, vertical_spacing=0)
+    buttons = [QPushButton(f"Item {i}") for i in range(3)]
+    for button in buttons:
+        button.setFixedSize(60, 24)
+        layout.addWidget(button)
+    qtbot.addWidget(panel)
+    panel.resize(150, 60)
+    panel.show()
+    qtbot.waitUntil(lambda: buttons[2].geometry().top() > buttons[0].geometry().top())
+    assert buttons[0].geometry().top() == buttons[1].geometry().top()
+    assert buttons[2].geometry().top() > buttons[1].geometry().top()
+
+
 def test_event_details_contains_everything():
     ev = make_event(0, severity=None, facility=None, message="hello")
     ev.issues = ("no_pri",)
@@ -68,6 +125,9 @@ def test_rule_rows_roundtrip_remove_and_reset(qtbot):
     qtbot.addWidget(other)
     bar.add_rule_button.click()
     row = bar.rule_rows[0]
+    assert row.editor.isHidden()
+    row.edit_button.click()
+    assert bar._editors.currentWidget() is row.editor and not bar._editors.isHidden()
     row.value.setText("heartbeat")
     row.operator.setCurrentIndex(row.operator.findData("not_contains"))
     bar.add_rule(FilterRule("app", "equals", "db"))
@@ -87,6 +147,35 @@ def test_rule_rows_roundtrip_remove_and_reset(qtbot):
     other.reset()
     assert other.current_filter() == EventFilter()
     assert not other.rule_rows
+
+
+def test_filter_rule_row_has_compact_summary_and_toggleable_editor(qtbot):
+    bar = FilterBar()
+    qtbot.addWidget(bar)
+    row = bar.add_rule(FilterRule("text", "words", "disk fail", required=True))
+    assert row.editor.isHidden()
+    assert "Text (all fields) contains all words: disk fail" in row.summary_button.text()
+    assert "Always AND" in row.summary_button.text()
+    row.edit_button.click()
+    assert bar._editors.currentWidget() is row.editor and not bar._editors.isHidden()
+    row.value.setText("kernel panic")
+    assert "kernel panic" in row.summary_button.text()
+    row.summary_button.click()
+    assert bar._editors.currentWidget() is row.editor
+    row.edit_button.click()
+    assert bar._editors.isHidden()
+
+
+def test_filter_rule_chips_flow_side_by_side_with_embedded_pencil(qtbot):
+    bar = FilterBar()
+    qtbot.addWidget(bar)
+    bar.resize(760, 180)
+    bar.show()
+    first = bar.add_rule(FilterRule(value="first"))
+    second = bar.add_rule(FilterRule(value="second"))
+    qtbot.waitUntil(lambda: second.geometry().y() > first.geometry().y())
+    assert first.geometry().y() == bar.add_rule_button.geometry().y()
+    assert first.edit_button.parentWidget() is first.chip
 
 
 def test_restore_ignores_invalid_saved_rules(qtbot):
