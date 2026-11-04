@@ -122,20 +122,26 @@ Notes:
 | **Search** | Field below the filters. **Enter/F3** or “▼ Older” moves to the next older match; **Shift+F3** or “▲ Newer” moves to the next newer match. **Ctrl+F** focuses the field. Search starts at the newest match, selects the matching row, and shows surrounding messages even if they do not match the query. It searches beyond the currently loaded table page. Active filters and time range still apply; search does not affect the minimap. Searching pauses the view, but receiving and storage continue. At the end, “No more matches” is shown; results do not wrap around. |
 | **Severity** | Click a group in the colored legend to show only that group: Error, Warning, Info, Debug, or Unknown. Click the only selected group again or click “All” to reset the severity filter. Ctrl+click adds or removes groups. Info includes Notice and Info; Error includes Emergency through Error. Active groups are bold. Counts reflect the active filters. The severity menu also provides individual severities and presets. |
 | **Facility** | Separate selector, in addition to severity and text rules. |
-| **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Combine rules using AND or OR; non-matching messages are hidden. |
+| **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Rules appear as compact summaries; click the pencil to edit a rule. Combine rules using AND or OR; non-matching messages are hidden. |
 | **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. A context menu is also available. Selecting multiple rows automatically pauses Live. |
-| **Minimap** | Stacked bars per time bucket (red = errors, orange = warnings, etc.) with a red error strip above. With sparse data, the range is automatically narrowed and padded around existing messages. The displayed range appears in the header. **Click** to jump to a time. **Drag** to zoom to a selected range; “Reset zoom” restores automatic scaling. Tooltips show counts and milliseconds. |
+| **Minimap** | Stacked bars per time bucket (red = errors, orange = warnings, etc.) with a red error strip above. The gray band marks the time span of the currently visible table rows and follows scrolling and resizing. With sparse data, the range is automatically narrowed and padded around existing messages. The displayed range appears in the header. **Click** to jump to a time. **Drag** to zoom to a selected range; “Reset zoom” restores automatic scaling. Tooltips show counts and milliseconds. |
 | **Details** | Shows all fields of the selected row, including raw data and parser notes. |
 | **F5** | Refresh the view. |
 | **Close button** | Minimizes the window to the tray; receiving continues. Quit using the “Quit” menu item or tray menu. |
 
 ### Colors and highlights
 
+The dark gray background band spans the oldest through newest selected messages.
+The lighter gray band independently marks the currently visible table time span.
+
 Info/Notice rows are light blue; Debug rows are light gray. Their minimap bars are blue
 and gray respectively. A scrollable **Highlight** panel appears to the right of the
-filters. Add multiple rules, each with its own text, color, enabled checkbox, and remove
-button. Drag the divider to adjust the width of the two panels. Highlights never hide
-messages. Text color is chosen for contrast with the background.
+filters. Rules appear as color-outlined text rows. Select a rule and use the pencil to
+edit its text, color, enabled state, priority, or popup setting. The **×** on each
+highlight or filter chip removes that rule. Use the panel's **▲ / ▼**
+controls to step to newer or older messages matching the selected rule. Drag the divider
+to adjust the width of the two panels. Highlights never hide messages. Text color is
+chosen for contrast with the background.
 
 Use **↑ / ↓** to change priority: **the highest-priority matching enabled rule wins**.
 Overlapping matches are counted only once. Empty or disabled rules are inactive. A rule
@@ -151,15 +157,15 @@ show totals; tooltips show counts per rule across all stored messages in the act
 filters and time range, not just the loaded table page. Highlights search the full
 message using a literal substring (ASCII case-insensitive; no wildcards or regular
 expressions). Changes apply even when the view is paused. Text, colors, order, and
-enabled state are saved. Existing highlight text is migrated as a purple rule when
-upgrading.
+enabled state are saved. Popup notifications can be enabled separately for each rule.
+Existing highlight text is migrated as a purple rule when upgrading.
 
-**New-highlight popups:** When “Popup” is enabled, a Windows notification appears when
-a newly received message matches a highlight, even if the window is minimized to the
-tray and regardless of filters or Live pause. Existing messages do not trigger a
-notification at startup. Notifications are grouped (at most one every 10 seconds) and
-include up to the three newest messages and the total count. Click a notification to
-open the window.
+**New-highlight popups:** For each highlight rule, enable “Popup” in its editor to show
+a Windows notification when a newly received message matches that rule, even if the
+window is minimized to the tray and regardless of filters or Live pause. Existing
+messages do not trigger a notification at startup. Notifications are grouped (at most
+one every 10 seconds) and include up to the three newest messages and the total count.
+Click a notification to open the window.
 
 ### Filters, table, and status
 
