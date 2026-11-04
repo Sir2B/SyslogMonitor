@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from syslog_monitor.config import Settings, default_config_dir, load_settings, save_settings
@@ -64,10 +65,10 @@ def test_listener_defaults_migration_validation_and_roundtrip(tmp_path):
     save_settings(path, both)
     assert load_settings(path) == both
     assert Settings(udp_enabled=False, tcp_enabled=True).listener_endpoints == (("TCP", 514),)
-    assert "Enable at least one UDP or TCP listener." in Settings(udp_enabled=False).validate()
+    assert "Enable at least one UDP, TCP or TLS listener." in Settings(udp_enabled=False).validate()
     assert Settings(tcp_port=0).validate() == ["TCP port must be between 1 and 65535."]
     assert Settings(tcp_port="514").validate() == ["TCP port must be between 1 and 65535."]
-    assert Settings(tcp_enabled="false").validate() == ["UDP and TCP enabled settings must be true or false."]
+    assert Settings(tcp_enabled="false").validate() == ["UDP, TCP and TLS enabled settings must be true or false."]
 
     path.write_text(json.dumps({"tcp_enabled": "false"}))
     assert load_settings(path) == Settings()
@@ -84,3 +85,27 @@ def test_default_config_dir_uses_home_without_local_appdata(tmp_path, monkeypatc
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert default_config_dir() == tmp_path / ".local" / "share" / "SyslogMonitor"
+
+
+def test_tls_settings_defaults_validation_and_roundtrip(tmp_path):
+    defaults = Settings()
+    assert (defaults.tls_enabled, defaults.tls_port, defaults.tls_files) == (False, 6514, ("", "", ""))
+    assert Settings(tls_port=0).validate() == ["TLS port must be between 1 and 65535."]
+    assert Settings(tls_enabled=True).validate() == ["TLS needs a certificate file."]
+    assert Settings(tls_enabled=True, tls_cert_file="  ").validate() == ["TLS needs a certificate file."]
+    assert Settings(tls_cert_file=None).validate() == ["TLS file settings must be text."]
+    assert Settings(tls_enabled="yes").validate() == ["UDP, TCP and TLS enabled settings must be true or false."]
+
+    tls_only = Settings(udp_enabled=False, tls_enabled=True, tls_cert_file="server.crt")
+    assert tls_only.validate() == []
+    assert tls_only.listener_endpoints == (("TLS", 6514),)
+    clash = Settings(tcp_enabled=True, tcp_port=6514, tls_enabled=True, tls_cert_file="server.crt")
+    assert clash.validate() == ["TCP and TLS listeners need different ports."]
+    assert replace(clash, tcp_enabled=False).validate() == []
+    all_three = replace(clash, tcp_port=1514, tls_key_file="server.key", tls_ca_file="ca.pem")
+    assert all_three.listener_endpoints == (("UDP", 514), ("TCP", 1514), ("TLS", 6514))
+    assert all_three.tls_files == ("server.crt", "server.key", "ca.pem")
+
+    path = tmp_path / "settings.json"
+    save_settings(path, all_three)
+    assert load_settings(path) == all_three

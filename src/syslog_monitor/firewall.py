@@ -29,7 +29,7 @@ PROTOCOL_TCP = 6
 PROTOCOL_UDP = 17
 PROTOCOL_ANY = 256
 PROTOCOL_UNKNOWN = -1
-PROTOCOL_NUMBERS = {"UDP": PROTOCOL_UDP, "TCP": PROTOCOL_TCP}
+PROTOCOL_NUMBERS = {"UDP": PROTOCOL_UDP, "TCP": PROTOCOL_TCP, "TLS": PROTOCOL_TCP}  # TLS runs over TCP
 CHECK_TIMEOUT_S = 30
 
 
@@ -251,7 +251,7 @@ def current_programs() -> tuple[str, ...]:
 
 def firewall_rule_command(port: int, protocol: Transport = "UDP") -> str:
     return (f'New-NetFirewallRule -DisplayName "Syslog Monitor {protocol} {port}" -Direction Inbound '
-            f"-Protocol {protocol} -LocalPort {port} -Action Allow")
+            f"-Protocol {'TCP' if protocol == 'TLS' else protocol} -LocalPort {port} -Action Allow")
 
 
 def firewall_unblock_command(port: int, program: str, protocol: Transport = "UDP") -> str:

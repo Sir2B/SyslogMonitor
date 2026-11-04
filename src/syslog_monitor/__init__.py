@@ -1,4 +1,4 @@
-"""Syslog Monitor: receive, persist, search and visualise syslog messages (UDP/TCP)."""
+"""Syslog Monitor: receive, persist, search and visualise syslog messages (UDP/TCP/TLS)."""
 
 __version__ = "1.0.0"
 

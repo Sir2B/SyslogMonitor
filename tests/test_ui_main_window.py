@@ -986,8 +986,37 @@ def test_listener_settings_controls_and_validation(qtbot):
 
     dialog.tcp_enabled.setChecked(False)
     dialog.accept()
-    assert "Enable at least one UDP or TCP listener" in dialog.error_label.text()
+    assert "Enable at least one UDP, TCP or TLS listener" in dialog.error_label.text()
     assert not dialog.result()
+
+
+def test_tls_settings_controls_check_certificate_files(qtbot, tls_certs):
+    from syslog_monitor.ui.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog(Settings())
+    qtbot.addWidget(dialog)
+    assert not dialog.tls_enabled.isChecked()
+    assert not dialog.tls_port.isEnabled() and not dialog.tls_cert.isEnabled()
+    dialog.tls_enabled.setChecked(True)
+    assert dialog.tls_port.isEnabled() and dialog.tls_cert.isEnabled() and dialog.tls_ca.isEnabled()
+    assert dialog.tls_port.value() == 6514
+
+    dialog.accept()
+    assert "TLS needs a certificate file" in dialog.error_label.text() and not dialog.result()
+    dialog.tls_cert.setText(tls_certs.server_cert)
+    dialog.tls_key.setText(tls_certs.rogue_key)
+    dialog.accept()
+    assert "Could not load TLS certificate" in dialog.error_label.text() and not dialog.result()
+
+    dialog.tls_key.setText(f"  {tls_certs.server_key} ")
+    dialog.tls_ca.setText(tls_certs.ca)
+    dialog.tls_port.setValue(16514)
+    dialog.accept()
+    assert dialog.result()
+    result = dialog.result_settings()
+    assert result.tls_enabled and result.tls_port == 16514
+    assert result.tls_files == (tls_certs.server_cert, tls_certs.server_key, tls_certs.ca)
+    assert result.listener_endpoints == (("UDP", 514), ("TLS", 16514))
 
 
 def test_gui_applies_tcp_settings_and_keeps_udp_running_on_error(qtbot, tmp_path, monkeypatch):

@@ -1,4 +1,4 @@
-"""Capture pipeline: UDP/TCP receivers -> bounded queue -> database writer.
+"""Capture pipeline: UDP/TCP/TLS receivers -> bounded queue -> database writer.
 
 Independent of Qt so it can be tested and reused headless.
 """
@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from syslog_monitor.config import Settings, Transport
-from syslog_monitor.receiver import TcpReceiver, UdpReceiver
+from syslog_monitor.receiver import TcpReceiver, TlsConfigError, TlsReceiver, UdpReceiver, create_tls_context
 from syslog_monitor.stats import Stats, StatsSnapshot
 from syslog_monitor.storage import EventStore
 from syslog_monitor.writer import EventWriter, RetentionPolicy, WriterTuning
@@ -38,6 +38,7 @@ class CaptureService:
         self._store = EventStore(data_dir)  # raises StorageError
         self._writer = EventWriter(self._queue, self._store, self.stats, self._policy(), tuning)
         self._receivers: dict[Transport, UdpReceiver | TcpReceiver] = {}
+        self._receiver_configs: dict[Transport, tuple] = {}
         self._listener_lock = threading.RLock()
         self._writer.start()
 
@@ -53,7 +54,7 @@ class CaptureService:
     @property
     def bound_port(self) -> int | None:
         ports = self.bound_ports
-        return ports.get("UDP", ports.get("TCP"))
+        return ports.get("UDP", ports.get("TCP", ports.get("TLS")))
 
     @property
     def bound_ports(self) -> dict[Transport, int]:
@@ -69,23 +70,38 @@ class CaptureService:
         with self._listener_lock:
             return self._sync_listeners()
 
+    def _receiver_config(self, protocol: Transport, port: int) -> tuple:
+        tls = self.settings.tls_files if protocol == "TLS" else ()
+        return self.settings.bind_host, port, tls
+
     def _sync_listeners(self) -> bool:
         host = self.settings.bind_host
         desired = dict(self.settings.listener_endpoints)
         for protocol, receiver in tuple(self._receivers.items()):
-            if (protocol not in desired or (receiver.host, receiver.port) != (host, desired[protocol])
-                    or not receiver.running):
+            if (protocol not in desired or not receiver.running
+                    or self._receiver_configs.get(protocol) != self._receiver_config(protocol, desired[protocol])):
                 receiver.stop()
                 del self._receivers[protocol]
+                self._receiver_configs.pop(protocol, None)
 
         errors: list[str] = []
         if not desired:
-            errors.append("Enable at least one UDP or TCP listener in Settings.")
+            errors.append("Enable at least one UDP, TCP or TLS listener in Settings.")
         for protocol, port in desired.items():
             if protocol in self._receivers:
                 continue
-            receiver_type = UdpReceiver if protocol == "UDP" else TcpReceiver
-            receiver = receiver_type(host, port, self._queue, self.stats)
+            receiver: UdpReceiver | TcpReceiver
+            if protocol == "TLS":
+                try:
+                    context = create_tls_context(*self.settings.tls_files)
+                except TlsConfigError as exc:
+                    log.error("Could not start TLS listener: %s", exc)
+                    errors.append(f"TLS listener: {exc}")
+                    continue
+                receiver = TlsReceiver(host, port, self._queue, self.stats, context)
+            else:
+                receiver_type = UdpReceiver if protocol == "UDP" else TcpReceiver
+                receiver = receiver_type(host, port, self._queue, self.stats)
             try:
                 receiver.start()
             except OSError as exc:
@@ -97,6 +113,7 @@ class CaptureService:
                 errors.append(f"Could not start {protocol} listener: {exc}")
                 continue
             self._receivers[protocol] = receiver
+            self._receiver_configs[protocol] = self._receiver_config(protocol, port)
 
         self.stats.set(listener_state="error" if errors else "running",
                        listener_error="; ".join(errors))
@@ -107,6 +124,7 @@ class CaptureService:
             for receiver in self._receivers.values():
                 receiver.stop()
             self._receivers.clear()
+            self._receiver_configs.clear()
             self.stats.set(listener_state="stopped", listener_address="", listener_error="")
 
     def apply_settings(self, settings: Settings) -> bool:
@@ -115,8 +133,8 @@ class CaptureService:
         Returns False if the listener had to be restarted and failed.
         """
         with self._listener_lock:
-            listener_changed = (settings.bind_host, settings.listener_endpoints) != (
-                self.settings.bind_host, self.settings.listener_endpoints)
+            listener_changed = (settings.bind_host, settings.listener_endpoints, settings.tls_files) != (
+                self.settings.bind_host, self.settings.listener_endpoints, self.settings.tls_files)
             was_active = bool(self._receivers) or self.stats.snapshot().listener_state == "error"
             self.settings = settings
             self._writer.set_policy(self._policy())

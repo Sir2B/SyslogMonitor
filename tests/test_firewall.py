@@ -90,6 +90,22 @@ def test_combined_check_reads_policy_once_and_offers_the_correct_rules(monkeypat
     assert "-Protocol TCP -LocalPort 6514" in command
 
 
+def test_tls_endpoint_is_checked_and_fixed_as_tcp(monkeypatch):
+    policy = state(Rule("tcp allow", block=False, protocol=firewall.PROTOCOL_TCP, local_ports="6514"),
+                   Rule("udp 1514", block=False, protocol=firewall.PROTOCOL_UDP, local_ports="1514"))
+    assert assess(policy, 6514, (PY,), "TLS").level == Level.OK
+    monkeypatch.setattr(firewall.sys, "platform", "win32")
+    monkeypatch.setattr(firewall, "read_state", lambda: policy)
+    monkeypatch.setattr(firewall, "current_programs", lambda: (PY,))
+    check = firewall.check_firewalls("0.0.0.0", (("TLS", 6514), ("TLS", 1514)))
+    assert check.level == Level.WARNING
+    assert "TLS 6514 is allowed" in check.summary and "TLS 1514 is not allowed" in check.summary
+    _, command = firewall.remedy(check, 6514, PY)
+    assert command == ('New-NetFirewallRule -DisplayName "Syslog Monitor TLS 1514" -Direction Inbound '
+                       "-Protocol TCP -LocalPort 1514 -Action Allow")
+    assert "-Protocol TCP -LocalPort 1514" in firewall.firewall_unblock_command(1514, PY, "TLS")
+
+
 def test_rule_for_other_profile_does_not_apply():
     rule = Rule("python.exe", block=False, application=PY, profiles=DOMAIN | PUBLIC)
     assert assess(state(rule, active=PRIVATE), 514, (PY,)).level == Level.WARNING

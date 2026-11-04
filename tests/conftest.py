@@ -1,7 +1,10 @@
+import datetime
+import ipaddress
 import os
 import socket
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,3 +45,64 @@ def send_udp(port: int, *payloads: bytes) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         for payload in payloads:
             sock.sendto(payload, ("127.0.0.1", port))
+
+
+def _write_cert(directory: Path, name: str, common_name: str, *, issuer=None, ca: bool = False,
+                password: bytes | None = None):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    issuer_cert, issuer_key = issuer if issuer else (None, key)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    builder = (x509.CertificateBuilder()
+               .subject_name(subject)
+               .issuer_name(issuer_cert.subject if issuer_cert else subject)
+               .public_key(key.public_key())
+               .serial_number(x509.random_serial_number())
+               .not_valid_before(now - datetime.timedelta(days=1))
+               .not_valid_after(now + datetime.timedelta(days=30))
+               .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True))
+    if not ca:
+        builder = builder.add_extension(x509.SubjectAlternativeName(
+            [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+        builder = builder.add_extension(x509.ExtendedKeyUsage(
+            [ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
+    cert = builder.sign(issuer_key, hashes.SHA256())
+    encryption = (serialization.BestAvailableEncryption(password) if password
+                  else serialization.NoEncryption())
+    cert_path, key_path = directory / f"{name}.crt", directory / f"{name}.key"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                           serialization.PrivateFormat.PKCS8, encryption))
+    return cert, key, cert_path, key_path
+
+
+@pytest.fixture(scope="session")
+def tls_certs(tmp_path_factory):
+    """CA-signed server and client certificates plus an untrusted client certificate."""
+    pytest.importorskip("cryptography")
+    directory = tmp_path_factory.mktemp("tls")
+    ca_cert, ca_key, ca_path, _ = _write_cert(directory, "ca", "Test CA", ca=True)
+    _, _, server_cert, server_key = _write_cert(directory, "server", "localhost", issuer=(ca_cert, ca_key))
+    _, _, client_cert, client_key = _write_cert(directory, "client", "device", issuer=(ca_cert, ca_key))
+    _, _, rogue_cert, rogue_key = _write_cert(directory, "rogue", "rogue")
+    _, _, locked_cert, locked_key = _write_cert(directory, "locked", "localhost", issuer=(ca_cert, ca_key),
+                                                password=b"secret")
+    combined = directory / "combined.pem"
+    combined.write_bytes(server_cert.read_bytes() + server_key.read_bytes())
+    return SimpleNamespace(ca=str(ca_path), server_cert=str(server_cert), server_key=str(server_key),
+                           combined=str(combined), client_cert=str(client_cert), client_key=str(client_key),
+                           rogue_cert=str(rogue_cert), rogue_key=str(rogue_key),
+                           locked_cert=str(locked_cert), locked_key=str(locked_key))
+
+
+def tls_client_context(certs, client: str | None = None):
+    import ssl
+    context = ssl.create_default_context(cafile=certs.ca)
+    if client:
+        context.load_cert_chain(getattr(certs, f"{client}_cert"), getattr(certs, f"{client}_key"))
+    return context

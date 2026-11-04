@@ -38,7 +38,7 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: "autostart"; Description: "Start automatically with Windows (runs in the system tray)"; Flags: unchecked
 Name: "firewall"; Description: "Allow inbound Syslog (UDP) through the firewall — requires administrator rights"; Flags: unchecked
-Name: "firewalltcp"; Description: "Allow inbound Syslog (TCP) through the firewall — requires administrator rights"; Flags: unchecked
+Name: "firewalltcp"; Description: "Allow inbound Syslog (TCP and TLS) through the firewall — requires administrator rights"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -1,4 +1,4 @@
-"""UDP and TCP syslog listeners feeding the same bounded queue."""
+"""UDP, TCP and TLS syslog listeners feeding the same bounded queue."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 import queue
 import selectors
 import socket
+import ssl
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -23,6 +24,7 @@ POLL_TIMEOUT_S = 0.25
 MAX_TCP_MESSAGE_BYTES = 1024 * 1024
 MAX_TCP_CLIENTS = 128
 TCP_READ_BYTES = 64 * 1024
+TLS_HANDSHAKE_TIMEOUT_S = 10.0
 
 
 def now_ms() -> int:
@@ -233,6 +235,12 @@ class _TcpClient:
     sock: socket.socket
     address: tuple[str, int]
     framer: TcpFramer = field(default_factory=TcpFramer)
+    events: int = selectors.EVENT_READ
+    handshake_deadline: float | None = None
+
+
+class _ClientClosed(Exception):
+    """The client was already handled and must be closed without further logging."""
 
 
 class TcpReceiver(_Receiver):
@@ -258,7 +266,7 @@ class TcpReceiver(_Receiver):
             sock.close()
             raise
         self._start_thread(sock)
-        log.info("TCP listener started on %s:%d", self.host, self.bound_port)
+        log.info("%s listener started on %s:%d", self.protocol, self.host, self.bound_port)
 
     def _run(self) -> None:
         assert self._sock is not None
@@ -275,12 +283,13 @@ class TcpReceiver(_Receiver):
                                 self._accept(selector, clients)
                             else:
                                 self._read_client(selector, clients, key.data)
+                        self._expire_clients(selector, clients)
                 finally:
                     for client in tuple(clients.values()):
                         if client.framer.pending:
                             self._stats.add("dropped_tcp_framing")
-                            log.warning("Discarding unfinished TCP message from %s:%d: listener closed",
-                                        *client.address)
+                            log.warning("Discarding unfinished %s message from %s:%d: listener closed",
+                                        self.protocol, *client.address)
                         self._close_client(selector, clients, client)
         except (OSError, ValueError) as exc:
             self._record_failure(exc)
@@ -293,37 +302,59 @@ class TcpReceiver(_Receiver):
             return
         except (ConnectionAbortedError, ConnectionResetError) as exc:
             self._stats.add("tcp_connections_rejected")
-            log.warning("Could not accept TCP client: %s", exc)
+            log.warning("Could not accept %s client: %s", self.protocol, exc)
             return
         if len(clients) >= MAX_TCP_CLIENTS:
             self._stats.add("tcp_connections_rejected")
-            log.warning("Rejecting TCP client %s:%d: connection limit reached", *address)
+            log.warning("Rejecting %s client %s:%d: connection limit reached", self.protocol, *address)
             sock.close()
             return
         try:
             sock.setblocking(False)
-            client = _TcpClient(sock, address)
-            selector.register(sock, selectors.EVENT_READ, client)
-            clients[sock] = client
+            client = self._new_client(sock, address)
         except (OSError, ValueError) as exc:
             self._stats.add("tcp_connections_rejected")
-            log.warning("Could not register TCP client %s:%d: %s", *address, exc)
+            log.warning("Could not set up %s client %s:%d: %s", self.protocol, *address, exc)
             sock.close()
+            return
+        try:
+            selector.register(client.sock, client.events, client)
+            clients[client.sock] = client
+        except (OSError, ValueError) as exc:
+            self._stats.add("tcp_connections_rejected")
+            log.warning("Could not register %s client %s:%d: %s", self.protocol, *address, exc)
+            client.sock.close()
+
+    def _new_client(self, sock: socket.socket, address: tuple[str, int]) -> _TcpClient:
+        return _TcpClient(sock, address)
+
+    def _receive(self, selector: selectors.BaseSelector, client: _TcpClient) -> bytes | None:
+        """Read available bytes; ``None`` means nothing is available yet."""
+        return client.sock.recv(TCP_READ_BYTES)
+
+    def _expire_clients(self, selector: selectors.BaseSelector,
+                        clients: dict[socket.socket, _TcpClient]) -> None:
+        pass
 
     def _read_client(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
                      client: _TcpClient) -> None:
         try:
-            data = client.sock.recv(TCP_READ_BYTES)
+            data = self._receive(selector, client)
         except BlockingIOError:
+            return
+        except _ClientClosed:
+            self._close_client(selector, clients, client)
             return
         except OSError as exc:
             if client.framer.pending:
                 self._stats.add("dropped_tcp_framing")
-                log.warning("TCP client %s:%d disconnected with an unfinished message: %s",
-                            *client.address, exc)
+                log.warning("%s client %s:%d disconnected with an unfinished message: %s",
+                            self.protocol, *client.address, exc)
             else:
-                log.warning("TCP client %s:%d disconnected: %s", *client.address, exc)
+                log.warning("%s client %s:%d disconnected: %s", self.protocol, *client.address, exc)
             self._close_client(selector, clients, client)
+            return
+        if data is None:
             return
         try:
             if data:
@@ -336,7 +367,7 @@ class TcpReceiver(_Receiver):
                 self._close_client(selector, clients, client)
         except TcpFramingError as exc:
             self._stats.add("dropped_tcp_framing")
-            log.warning("Discarding TCP message from %s:%d: %s", *client.address, exc)
+            log.warning("Discarding %s message from %s:%d: %s", self.protocol, *client.address, exc)
             self._close_client(selector, clients, client)
 
     @staticmethod
@@ -345,3 +376,93 @@ class TcpReceiver(_Receiver):
         selector.unregister(client.sock)
         del clients[client.sock]
         client.sock.close()
+
+
+class TlsConfigError(ValueError):
+    """The TLS certificate, private key or CA file cannot be used."""
+
+
+def _no_key_password() -> str:
+    raise TlsConfigError("encrypted private keys are not supported")
+
+
+def create_tls_context(cert_file: str, key_file: str = "", ca_file: str = "") -> ssl.SSLContext:
+    """Build a TLS 1.2+ server context; with ``ca_file`` clients must present a certificate."""
+    if not cert_file:
+        raise TlsConfigError("no TLS certificate file is configured")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    try:
+        context.load_cert_chain(cert_file, key_file or None, password=_no_key_password)
+    except TlsConfigError as exc:
+        raise TlsConfigError(f"Could not load TLS private key: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise TlsConfigError(f"Could not load TLS certificate or private key: {exc}") from exc
+    if ca_file:
+        try:
+            context.load_verify_locations(cafile=ca_file)
+        except (OSError, ValueError) as exc:
+            raise TlsConfigError(f"Could not load TLS client CA file: {exc}") from exc
+        context.verify_mode = ssl.CERT_REQUIRED
+    return context
+
+
+class TlsReceiver(TcpReceiver):
+    """Receive RFC 5425 syslog over TLS; framing is shared with :class:`TcpReceiver`."""
+
+    protocol = "TLS"
+
+    def __init__(self, host: str, port: int, out_queue: queue.Queue, stats: Stats,
+                 context: ssl.SSLContext) -> None:
+        super().__init__(host, port, out_queue, stats)
+        self._context = context
+
+    def _new_client(self, sock: socket.socket, address: tuple[str, int]) -> _TcpClient:
+        tls_sock = self._context.wrap_socket(sock, server_side=True, do_handshake_on_connect=False)
+        return _TcpClient(tls_sock, address, handshake_deadline=time.monotonic() + TLS_HANDSHAKE_TIMEOUT_S)
+
+    @staticmethod
+    def _watch(selector: selectors.BaseSelector, client: _TcpClient, events: int) -> None:
+        if client.events != events:
+            selector.modify(client.sock, events, client)
+            client.events = events
+
+    def _receive(self, selector: selectors.BaseSelector, client: _TcpClient) -> bytes | None:
+        sock = client.sock
+        assert isinstance(sock, ssl.SSLSocket)
+        try:
+            if client.handshake_deadline is not None:
+                try:
+                    sock.do_handshake()
+                except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
+                    raise
+                except OSError as exc:
+                    self._stats.add("tls_handshake_failures")
+                    log.warning("TLS handshake with %s:%d failed: %s", *client.address, exc)
+                    raise _ClientClosed from exc
+                client.handshake_deadline = None
+                log.info("TLS client %s:%d connected (%s)", *client.address, sock.version())
+            data = sock.recv(TCP_READ_BYTES)
+            # Decrypted bytes of the current record are not visible to the selector.
+            while data and sock.pending():
+                more = sock.recv(TCP_READ_BYTES)
+                if not more:
+                    break
+                data += more
+        except ssl.SSLWantReadError:
+            self._watch(selector, client, selectors.EVENT_READ)
+            return None
+        except ssl.SSLWantWriteError:
+            self._watch(selector, client, selectors.EVENT_WRITE)
+            return None
+        self._watch(selector, client, selectors.EVENT_READ)
+        return data
+
+    def _expire_clients(self, selector: selectors.BaseSelector,
+                        clients: dict[socket.socket, _TcpClient]) -> None:
+        now = time.monotonic()
+        for client in tuple(clients.values()):
+            if client.handshake_deadline is not None and now >= client.handshake_deadline:
+                self._stats.add("tls_handshake_failures")
+                log.warning("TLS handshake with %s:%d timed out", *client.address)
+                self._close_client(selector, clients, client)

@@ -163,13 +163,14 @@ def test_mcp_receiver_status_keeps_primary_address_and_lists_transports():
     snap = StatsSnapshot(listener_state="running", listener_address="127.0.0.1:514",
                          listener_endpoints=(("UDP", "127.0.0.1", 514), ("TCP", "127.0.0.1", 6514)),
                          dropped_queue_full=1, dropped_write_error=2, dropped_tcp_framing=3,
-                         tcp_connections_rejected=4)
+                         tcp_connections_rejected=4, tls_handshake_failures=5)
     status = app_module.receiver_status(snap)
     assert status["address"] == "127.0.0.1:514"
     assert status["listeners"] == [{"protocol": "UDP", "address": "127.0.0.1:514"},
                                    {"protocol": "TCP", "address": "127.0.0.1:6514"}]
     assert status["dropped_since_start"] == 6
     assert status["tcp_connections_rejected_since_start"] == 4
+    assert status["tls_handshake_failures_since_start"] == 5
 
 
 def test_second_instance_is_refused(config_dir):

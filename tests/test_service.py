@@ -2,7 +2,7 @@ import socket
 import time
 from dataclasses import replace
 
-from conftest import send_udp
+from conftest import send_udp, tls_client_context
 
 from syslog_monitor import receiver as receiver_module
 from syslog_monitor.config import Settings
@@ -387,5 +387,65 @@ def test_maximum_sized_tcp_message_is_stored_without_truncation(tmp_path):
             assert runner.get_event(rows[0].id).raw == message
         finally:
             runner.close()
+    finally:
+        svc.shutdown()
+
+
+def test_tls_config_error_keeps_udp_running_and_fixed_files_start_only_tls(tmp_path, tls_certs):
+    settings = Settings(bind_host="127.0.0.1", port=0, tls_enabled=True, tls_port=0,
+                        tls_cert_file=str(tmp_path / "missing.crt"))
+    svc = CaptureService(tmp_path, settings, tuning=FAST)
+    try:
+        assert not svc.start_listener()
+        snap = svc.snapshot()
+        assert snap.listener_state == "error" and "TLS listener: Could not load" in snap.listener_error
+        assert set(svc.bound_ports) == {"UDP"}
+        udp_receiver = svc._receivers["UDP"]
+
+        fixed = replace(settings, tls_cert_file=tls_certs.server_cert, tls_key_file=tls_certs.server_key)
+        assert svc.apply_settings(fixed)
+        assert svc._receivers["UDP"] is udp_receiver
+        ports = svc.bound_ports
+        assert set(ports) == {"UDP", "TLS"} and svc.snapshot().listener_state == "running"
+        assert svc.snapshot().listener_display_address == (
+            f"UDP 127.0.0.1:{ports['UDP']}, TLS 127.0.0.1:{ports['TLS']}")
+
+        sock = socket.create_connection(("127.0.0.1", ports["TLS"]), timeout=5)
+        with tls_client_context(tls_certs).wrap_socket(sock, server_hostname="localhost") as client:
+            message = "<11>1 - host app - - - verschlüsselt".encode()
+            client.sendall(str(len(message)).encode() + b" " + message)
+            assert wait_for(lambda: svc.snapshot().received == 1)
+        assert svc.flush()
+        runner = QueryRunner(svc.db_path)
+        try:
+            [row] = runner.fetch_older(EventFilter(), None, 10)
+            assert row.message == "verschlüsselt" and runner.get_event(row.id).raw == message
+        finally:
+            runner.close()
+
+        tls_receiver = svc._receivers["TLS"]
+        assert svc.apply_settings(replace(fixed, tls_ca_file=tls_certs.ca))
+        assert svc._receivers["TLS"] is not tls_receiver
+        assert svc._receivers["UDP"] is udp_receiver
+        assert svc.apply_settings(replace(fixed, tls_ca_file=tls_certs.ca, retention_days=7))
+    finally:
+        svc.shutdown()
+
+
+def test_tls_listener_reloads_certificate_files_on_restart(tmp_path, tls_certs):
+    import shutil
+    cert, key = tmp_path / "server.crt", tmp_path / "server.key"
+    shutil.copy(tls_certs.server_cert, cert)
+    shutil.copy(tls_certs.server_key, key)
+    svc = make_service(tmp_path, udp_enabled=False, tls_enabled=True, tls_port=0,
+                       tls_cert_file=str(cert), tls_key_file=str(key))
+    try:
+        assert svc.start_listener()
+        svc.stop_listener()
+        key.write_text("not a key")
+        assert not svc.start_listener()
+        assert "TLS listener" in svc.snapshot().listener_error and not svc.listening
+        shutil.copy(tls_certs.server_key, key)
+        assert svc.start_listener() and svc.listening
     finally:
         svc.shutdown()

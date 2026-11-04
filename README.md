@@ -1,6 +1,6 @@
 # Syslog Monitor
 
-A PySide6 desktop application for receiving syslog messages over **UDP and TCP**, storing them
+A PySide6 desktop application for receiving syslog messages over **UDP, TCP, and TLS**, storing them
 persistently in SQLite, and browsing them with search, filters, highlights, and a
 **minimap**. It is designed to run for days at a time and continues receiving messages
 while minimized to the system tray.
@@ -35,7 +35,7 @@ shows the Syslog Monitor icon rather than the Python icon.
 ### Firewall
 
 By default, the application listens on the standard syslog port `0.0.0.0:514/udp`;
-TCP is disabled until enabled in Settings. Administrator rights are not required to
+TCP and TLS are disabled until enabled in Settings. Administrator rights are not required to
 listen on this port on Windows. If another syslog service already uses a configured
 port for the same protocol, change the port in Settings. The firewall must
 allow traffic from the intended senders. For example, this rule restricts access to one
@@ -46,9 +46,12 @@ $sender = "192.0.2.50"  # Documentation-only address; replace with the actual se
 New-NetFirewallRule -DisplayName "Syslog Monitor UDP 514" -Direction Inbound -Protocol UDP -LocalPort 514 -RemoteAddress $sender -Action Allow
 # If TCP reception is enabled, create a separate rule for its configured port:
 New-NetFirewallRule -DisplayName "Syslog Monitor TCP 514" -Direction Inbound -Protocol TCP -LocalPort 514 -RemoteAddress $sender -Action Allow
+# TLS runs over TCP (default port 6514):
+New-NetFirewallRule -DisplayName "Syslog Monitor TLS 6514" -Direction Inbound -Protocol TCP -LocalPort 6514 -RemoteAddress $sender -Action Allow
 ```
 
-The installer offers separate optional UDP and TCP firewall rules. Each allows traffic
+The installer offers separate optional UDP and TCP firewall rules (the TCP rule also
+covers TLS). Each allows traffic
 for the application without restricting sender addresses or ports. Create narrower
 rules instead if needed.
 
@@ -95,7 +98,7 @@ virtual environment and PyInstaller intermediates are stored in
 
 | File | Purpose |
 |---|---|
-| `SyslogMonitor-<version>-setup.exe` | Per-user installation **without administrator rights** to `%LOCALAPPDATA%\Programs\SyslogMonitor`, with Start menu entry and uninstall support in Windows Apps. Optional desktop shortcut, autostart, and UDP/TCP firewall rules (each rule requests elevation). |
+| `SyslogMonitor-<version>-setup.exe` | Per-user installation **without administrator rights** to `%LOCALAPPDATA%\Programs\SyslogMonitor`, with Start menu entry and uninstall support in Windows Apps. Optional desktop shortcut, autostart, and UDP/TCP(+TLS) firewall rules (each rule requests elevation). |
 | `SyslogMonitor-<version>-portable.zip` | Extract and run `SyslogMonitor.exe`. No installation required. |
 
 Notes:
@@ -121,7 +124,7 @@ Notes:
 
 | Control | Function |
 |---|---|
-| **Receive** | Toggle all enabled UDP and TCP listeners. Previously stored data is retained. |
+| **Receive** | Toggle all enabled UDP, TCP, and TLS listeners. Previously stored data is retained. |
 | **Live** | New messages appear at the top. Pausing freezes only the view; receiving and storage continue. Scrolling down automatically pauses live updates. |
 | **Clear view** | Button beside the time range or **Ctrl+L**. Sets the custom range start to the current time and enables Live. The table, minimap, counters, and search then show only new messages, and the toolbar displays the start time. **No data is deleted.** Choose another range or uncheck “From” to show older messages again. |
 | **Time range** | Above the minimap, beside “Reset zoom.” Choose 15 minutes through 30 days, “All,” or **“From / To…”**. Either date/time boundary is optional: From only shows messages from that time through now (including live updates); To only shows messages up to the selected time. To includes the displayed second. If From is later than To, the values are corrected automatically. Switching to a custom range uses the current range as its initial value. The range applies to the table, search, and minimap. The minimap fits the actual data range within the selected bounds. |
@@ -137,13 +140,13 @@ Notes:
 
 ### Syslog reception
 
-In **Settings**, enable UDP, TCP, or both, and configure their ports separately. UDP
-remains enabled on port 514 by default; TCP is disabled by default and also defaults
-to port 514 when enabled. The two protocols can use the same port number, but TCP
-must not conflict with another TCP service such as the MCP server. Both listeners
-share the IPv4 listen address. Changes apply immediately while receiving. If one
+In **Settings**, enable any combination of UDP, TCP, and TLS, and configure their ports
+separately. UDP remains enabled on port 514 by default; TCP and TLS are disabled by
+default and default to ports 514 and 6514 when enabled. UDP may share a port number
+with TCP or TLS, but TCP and TLS need different ports and must not conflict with
+another TCP service such as the MCP server. All listeners share the IPv4 listen address. Changes apply immediately while receiving. If one
 listener cannot start, the error is displayed and any other working listener continues
-to receive. UDP and TCP messages use the same parser and database; the transport is
+to receive. All transports use the same parser and database; the transport is
 not recorded separately for each stored message.
 
 TCP accepts multiple persistent connections and RFC 6587 octet-counted frames, as well
@@ -154,8 +157,34 @@ are limited to 1 MiB and 128 clients may be connected at once. Oversized or inco
 frames are counted as dropped, and rejected connections are counted separately in the
 status bar. Both are recorded in the application log.
 
-TCP syslog is currently **unencrypted and unauthenticated**; TLS is not yet supported.
-Only enable reception on trusted networks and restrict firewall access to known senders.
+TLS implements RFC 5425 (syslog over TLS) with TLS 1.2 or later and uses the same
+framing and limits as TCP, so octet-counted frames (as required by RFC 5425) and
+LF-delimited messages both work. Configure:
+
+- **TLS certificate:** PEM file with the server certificate, optionally followed by
+  intermediate certificates and the private key.
+- **TLS private key:** PEM file with the unencrypted private key; leave empty if the key
+  is in the certificate file. Password-protected keys are not supported.
+- **Client CA (optional):** PEM file with one or more CA certificates. When set, every
+  device must present a client certificate signed by one of these CAs (mutual TLS);
+  otherwise, any client may connect.
+
+The files are checked when the settings are saved and loaded again whenever the TLS
+listener starts; after renewing a certificate, toggle **Receive** off and on. A TLS
+handshake must complete within 10 seconds. Failed or timed-out handshakes, for example
+plaintext senders or clients with untrusted certificates, are counted in the status bar
+and logged. Devices must trust the server certificate (or its CA) and should verify that
+its name matches the host name or IP address they connect to.
+
+For a quick test certificate (for example with OpenSSL):
+
+```powershell
+openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=syslog.example" `
+  -addext "subjectAltName=DNS:syslog.example,IP:192.0.2.10" -keyout server.key -out server.crt
+```
+
+UDP and plain TCP syslog are **unencrypted and unauthenticated**. Only enable them on
+trusted networks and restrict firewall access to known senders.
 
 ### Colors and highlights
 
@@ -316,8 +345,8 @@ the GUI responsive.
 
 ## Limitations
 
-- TLS is not yet supported. Under network load or when the socket buffer is full, UDP can
-  lose packets without the receiver detecting it.
+- Under network load or when the socket buffer is full, UDP can lose packets without the
+  receiver detecting it.
 - UDP and TCP syslog are neither encrypted nor authenticated; messages and sender
   addresses can be forged. Use only on trusted networks and restrict firewall access to the required
   senders.
@@ -330,7 +359,8 @@ the GUI responsive.
 - Substring search is case-insensitive only for ASCII characters (`café` and `cafe` differ).
   Word search does not have this limitation.
 - If the receive queue fills (20,000 messages), UDP or TCP messages are dropped and
-  counted in the status bar; TCP senders are not notified of these application-level drops.
+  counted in the status bar; TCP and TLS senders are not notified of these application-level drops.
+- TLS without a client CA encrypts the connection but does not authenticate senders.
 
 ## Architecture
 
@@ -338,7 +368,7 @@ the GUI responsive.
 src/syslog_monitor/
   events.py      Data model and severity classes
   parser.py      RFC 5424/3164 parser (pure, no I/O)
-  receiver.py    UDP and TCP receiver threads → queue
+  receiver.py    UDP, TCP, and TLS receiver threads → queue
   writer.py      Batch writer thread, retention/budget, retries
   storage.py     SQLite schema, migrations, deletion logic
   query.py       Read queries, filters → SQL, histogram
@@ -356,7 +386,7 @@ can be tested without the GUI. The GUI reads through `QueryRunner` in a dedicate
 ## Tests
 
 ```powershell
-pytest -q                          # unit, offscreen GUI, real UDP/TCP, and MCP-over-HTTP tests
+pytest -q                          # unit, offscreen GUI, real UDP/TCP/TLS, and MCP-over-HTTP tests
 $env:SYSLOG_MONITOR_SLOW_TESTS = 1  # enable load tests (~3.5 minutes)
 pytest -q -m slow
 ```

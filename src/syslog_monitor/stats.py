@@ -26,6 +26,7 @@ class StatsSnapshot:
     storage_budget_exceeded: bool = False
     dropped_tcp_framing: int = 0
     tcp_connections_rejected: int = 0
+    tls_handshake_failures: int = 0
     listener_endpoints: tuple[tuple[str, str, int], ...] = ()
 
     @property
@@ -75,6 +76,7 @@ class Stats:
         "dropped_queue_full",
         "dropped_tcp_framing",
         "tcp_connections_rejected",
+        "tls_handshake_failures",
         "persisted",
         "write_failures",
         "dropped_write_error",

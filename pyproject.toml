@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "syslog-monitor"
 version = "1.0.0"
-description = "Syslog Monitor: syslog UDP/TCP receiver with persistent storage, search and error minimap"
+description = "Syslog Monitor: syslog UDP/TCP/TLS receiver with persistent storage, search and error minimap"
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
@@ -17,7 +17,7 @@ Homepage = "https://github.com/Sir2B/SyslogMonitor"
 Issues = "https://github.com/Sir2B/SyslogMonitor/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8", "pytest-qt>=4.4"]
+test = ["pytest>=8", "pytest-qt>=4.4", "cryptography>=42"]
 
 [project.gui-scripts]
 syslog-monitor = "syslog_monitor.app:main"

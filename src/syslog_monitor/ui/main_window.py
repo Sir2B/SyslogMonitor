@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Controls", objectName="main_toolbar", movable=False)
         self.addToolBar(toolbar)
         self.listen_action = QAction("Receive", self, checkable=True)
-        self.listen_action.setToolTip("Start/stop the enabled UDP and TCP listeners")
+        self.listen_action.setToolTip("Start/stop the enabled UDP, TCP and TLS listeners")
         self.listen_action.triggered.connect(self._toggle_listener)
         self.live_action = QAction("● Live", self, checkable=True, checked=True)
         self.live_action.setToolTip("Live: automatically show the newest messages.\n"
@@ -911,6 +911,11 @@ class MainWindow(QMainWindow):
                 self.counter_label.text() +
                 f" · <b style='color:#b00020'>TCP connections rejected "
                 f"{format_count(snap.tcp_connections_rejected)}</b>")
+        if snap.tls_handshake_failures:
+            self.counter_label.setText(
+                self.counter_label.text() +
+                f" · <b style='color:#9a6700'>TLS handshakes failed "
+                f"{format_count(snap.tls_handshake_failures)}</b>")
         storage = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(self.service.settings.max_storage_bytes)}"
         if snap.writer_error:
             storage = f"<b style='color:#b00020'>{snap.writer_error}</b> · {storage}"

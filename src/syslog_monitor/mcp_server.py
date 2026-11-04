@@ -25,7 +25,7 @@ SERVER_NAME = "syslog-monitor"
 _START_TIMEOUT_S = 10.0
 
 INSTRUCTIONS = f"""\
-Read-only access to syslog messages captured by the local {APP_DISPLAY_NAME} app (UDP/TCP
+Read-only access to syslog messages captured by the local {APP_DISPLAY_NAME} app (UDP/TCP/TLS
 syslog receivers with long-term storage). Typical workflow for an embedded device that was
 restarted: call logs_since_boot (optionally with 'device'), then get_context /
 search_logs for details. Use summarize or error_timeline for an overview of longer
