@@ -176,6 +176,10 @@ plaintext senders or clients with untrusted certificates, are counted in the sta
 and logged. Devices must trust the server certificate (or its CA) and should verify that
 its name matches the host name or IP address they connect to.
 
+TLS connections use `close_notify` for an orderly shutdown. If a connection ends without
+it, any unterminated message is discarded and counted as a framing drop; complete frames
+received before the disconnect are processed normally.
+
 For a quick test certificate (for example with OpenSSL):
 
 ```powershell

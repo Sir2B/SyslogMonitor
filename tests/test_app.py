@@ -159,6 +159,44 @@ def test_autostart_tcp_only_receives_messages(tmp_path):
     assert "TCP listener started" in log_text and "UDP listener started" not in log_text
 
 
+def test_autostart_tls_only_receives_messages(tmp_path, tls_certs):
+    cfg = tmp_path / "SyslogMonitor"
+    cfg.mkdir()
+    port = free_tcp_port()
+    write_settings(cfg, udp_enabled=False, tls_enabled=True, tls_port=port,
+                   tls_cert_file=tls_certs.server_cert, tls_key_file=tls_certs.server_key,
+                   mcp_enabled=False)
+    script = textwrap.dedent(f"""
+        import socket, ssl, sys
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        from syslog_monitor.app import main
+
+        app = QApplication([])
+        def send():
+            context = ssl.create_default_context(cafile={tls_certs.ca!r})
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+            with socket.create_connection(("127.0.0.1", {port}), timeout=5) as raw:
+                with context.wrap_socket(raw, server_hostname="localhost") as client:
+                    message = b"<14>1 - host app - - - tls autostart"
+                    client.sendall(str(len(message)).encode() + b" " + message)
+                    with client.unwrap():
+                        pass
+        QTimer.singleShot(500, send)
+        QTimer.singleShot(1800, app.quit)
+        sys.exit(main([]))
+    """)
+    env = {**os.environ, "LOCALAPPDATA": str(tmp_path), "QT_QPA_PLATFORM": "offscreen",
+           "PYTHONPATH": str(Path(app_module.__file__).parents[1])}
+    result = subprocess.run([sys.executable, "-c", script], env=env, timeout=30,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with closing(sqlite3.connect(cfg / "data" / "syslog.sqlite3")) as conn:
+        assert conn.execute("SELECT message FROM events").fetchall() == [("tls autostart",)]
+    log_text = (cfg / "logs" / "syslog_monitor.log").read_text(encoding="utf-8")
+    assert "TLS listener started" in log_text and "UDP listener started" not in log_text
+
+
 def test_mcp_receiver_status_keeps_primary_address_and_lists_transports():
     snap = StatsSnapshot(listener_state="running", listener_address="127.0.0.1:514",
                          listener_endpoints=(("UDP", "127.0.0.1", 514), ("TCP", "127.0.0.1", 6514)),

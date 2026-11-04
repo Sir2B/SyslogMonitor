@@ -25,6 +25,7 @@ MAX_TCP_MESSAGE_BYTES = 1024 * 1024
 MAX_TCP_CLIENTS = 128
 TCP_READ_BYTES = 64 * 1024
 TLS_HANDSHAKE_TIMEOUT_S = 10.0
+TLS_SHUTDOWN_TIMEOUT_S = 10.0
 
 
 def now_ms() -> int:
@@ -237,6 +238,7 @@ class _TcpClient:
     framer: TcpFramer = field(default_factory=TcpFramer)
     events: int = selectors.EVENT_READ
     handshake_deadline: float | None = None
+    shutdown_deadline: float | None = None
 
 
 class _ClientClosed(Exception):
@@ -290,7 +292,7 @@ class TcpReceiver(_Receiver):
                             self._stats.add("dropped_tcp_framing")
                             log.warning("Discarding unfinished %s message from %s:%d: listener closed",
                                         self.protocol, *client.address)
-                        self._close_client(selector, clients, client)
+                        self._close_on_stop(selector, clients, client)
         except (OSError, ValueError) as exc:
             self._record_failure(exc)
 
@@ -364,11 +366,22 @@ class TcpReceiver(_Receiver):
                 message = client.framer.finish()
                 if message is not None:
                     self._handle(message, *client.address)
-                self._close_client(selector, clients, client)
+                self._close_after_eof(selector, clients, client)
         except TcpFramingError as exc:
             self._stats.add("dropped_tcp_framing")
             log.warning("Discarding %s message from %s:%d: %s", self.protocol, *client.address, exc)
-            self._close_client(selector, clients, client)
+            if data:
+                self._close_client(selector, clients, client)
+            else:
+                self._close_after_eof(selector, clients, client)
+
+    def _close_after_eof(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
+                         client: _TcpClient) -> None:
+        self._close_client(selector, clients, client)
+
+    def _close_on_stop(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
+                       client: _TcpClient) -> None:
+        self._close_client(selector, clients, client)
 
     @staticmethod
     def _close_client(selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
@@ -418,7 +431,8 @@ class TlsReceiver(TcpReceiver):
         self._context = context
 
     def _new_client(self, sock: socket.socket, address: tuple[str, int]) -> _TcpClient:
-        tls_sock = self._context.wrap_socket(sock, server_side=True, do_handshake_on_connect=False)
+        tls_sock = self._context.wrap_socket(sock, server_side=True, do_handshake_on_connect=False,
+                                             suppress_ragged_eofs=False)
         return _TcpClient(tls_sock, address, handshake_deadline=time.monotonic() + TLS_HANDSHAKE_TIMEOUT_S)
 
     @staticmethod
@@ -426,6 +440,13 @@ class TlsReceiver(TcpReceiver):
         if client.events != events:
             selector.modify(client.sock, events, client)
             client.events = events
+
+    def _read_client(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
+                     client: _TcpClient) -> None:
+        if client.shutdown_deadline is not None:
+            self._close_after_eof(selector, clients, client)
+        else:
+            super()._read_client(selector, clients, client)
 
     def _receive(self, selector: selectors.BaseSelector, client: _TcpClient) -> bytes | None:
         sock = client.sock
@@ -458,6 +479,37 @@ class TlsReceiver(TcpReceiver):
         self._watch(selector, client, selectors.EVENT_READ)
         return data
 
+    def _close_after_eof(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
+                         client: _TcpClient) -> None:
+        sock = client.sock
+        assert isinstance(sock, ssl.SSLSocket)
+        if client.shutdown_deadline is None:
+            client.shutdown_deadline = time.monotonic() + TLS_SHUTDOWN_TIMEOUT_S
+        try:
+            sock.unwrap()
+        except ssl.SSLWantReadError:
+            self._watch(selector, client, selectors.EVENT_READ)
+            return
+        except ssl.SSLWantWriteError:
+            self._watch(selector, client, selectors.EVENT_WRITE)
+            return
+        except OSError as exc:
+            log.warning("TLS shutdown with %s:%d failed: %s", *client.address, exc)
+        self._close_client(selector, clients, client)
+
+    def _close_on_stop(self, selector: selectors.BaseSelector, clients: dict[socket.socket, _TcpClient],
+                       client: _TcpClient) -> None:
+        sock = client.sock
+        assert isinstance(sock, ssl.SSLSocket)
+        if client.handshake_deadline is None:
+            try:
+                sock.unwrap()
+            except ssl.SSLWantReadError:
+                pass  # The close notification was sent; the peer has not replied yet.
+            except OSError as exc:
+                log.warning("Could not send TLS close notification to %s:%d: %s", *client.address, exc)
+        self._close_client(selector, clients, client)
+
     def _expire_clients(self, selector: selectors.BaseSelector,
                         clients: dict[socket.socket, _TcpClient]) -> None:
         now = time.monotonic()
@@ -465,4 +517,7 @@ class TlsReceiver(TcpReceiver):
             if client.handshake_deadline is not None and now >= client.handshake_deadline:
                 self._stats.add("tls_handshake_failures")
                 log.warning("TLS handshake with %s:%d timed out", *client.address)
+                self._close_client(selector, clients, client)
+            elif client.shutdown_deadline is not None and now >= client.shutdown_deadline:
+                log.warning("TLS shutdown with %s:%d timed out", *client.address)
                 self._close_client(selector, clients, client)
