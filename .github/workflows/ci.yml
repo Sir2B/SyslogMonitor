@@ -11,11 +11,15 @@ permissions:
 
 jobs:
   tests:
-    name: Windows tests (Python 3.11)
+    name: Windows tests (Python ${{ matrix.python-version }})
     runs-on: windows-latest
     timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.15"]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,8 +28,52 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: python -m pip install -e ".[test]"
       - name: Run tests
         run: python -m pytest -q -m "not slow"
+
+  package:
+    name: Windows package (Python 3.15)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    needs: tests
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - name: Build distribution
+        shell: pwsh
+        run: |
+          & ".\packaging\build.ps1" `
+            -PythonVersion "3.15" `
+            -PythonExecutable "${{ steps.setup-python.outputs.python-path }}" `
+            -WorkRoot (Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.15")
+      - name: Verify installer and portable ZIP
+        shell: pwsh
+        run: |
+          $source = Get-Content ".\src\syslog_monitor\__init__.py" -Raw
+          $version = [regex]::Match($source, '(?m)^__version__ = "([^"]+)"$').Groups[1].Value
+          if (-not $version) {
+            throw "Could not read the application version."
+          }
+
+          foreach ($name in @(
+            "SyslogMonitor-$version-setup.exe",
+            "SyslogMonitor-$version-portable.zip"
+          )) {
+            $path = Join-Path ".\dist" $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Expected build output was not created: $path"
+            }
+            if ((Get-Item -LiteralPath $path).Length -eq 0) {
+              throw "Build output is empty: $path"
+            }
+          }
