@@ -35,6 +35,7 @@ from syslog_monitor.ui.highlight_alerts import MAX_LISTED, MIN_INTERVAL_S, Highl
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.icons import app_icon
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
+from syslog_monitor.ui.palette import apply_theme, is_dark, status_color
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.ui.settings_dialog import SettingsDialog
 from syslog_monitor.ui.tray import TrayController
@@ -84,6 +85,7 @@ class MainWindow(QMainWindow):
                  tray_enabled: bool, timings: Timings = Timings(),
                  firewall_checker: Checker = check_firewalls, mcp: McpService | None = None) -> None:
         super().__init__()
+        apply_theme(service.settings.theme)
         self.service = service
         self.mcp = mcp
         self._settings_path = settings_path
@@ -231,7 +233,6 @@ class MainWindow(QMainWindow):
         self.minimap.time_clicked.connect(self.jump_to_time)
         self.minimap.range_selected.connect(self.zoom_to)
         self.minimap_range_label = QLabel()
-        self.minimap_range_label.setStyleSheet("color:#555")
         # may be clipped on narrow windows; start/end are also on the minimap axis
         self.minimap_range_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         minimap_section = QGroupBox()
@@ -282,6 +283,7 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setStyleSheet(
+            "QTableView { gridline-color: palette(mid); }"
             "QTableView::item:selected { background-color: #505050; color: #ffffff; "
             "border-top: 1px solid #303030; border-bottom: 1px solid #303030; }"
         )
@@ -539,7 +541,7 @@ class MainWindow(QMainWindow):
                  "<a href='all'>All</a>"]
         selected = self.filter_bar.selected_severities()
         for cls in SeverityClass:
-            color = CLASS_COLORS[cls].name()
+            color = (CLASS_COLORS[cls].lighter(150) if is_dark() else CLASS_COLORS[cls]).name()
             active = selected != set(ALL_SEVERITIES) and any(
                 severity_class(sev) == cls for sev in selected)
             weight = "bold" if active else "normal"
@@ -837,10 +839,10 @@ class MainWindow(QMainWindow):
 
     def _update_mode_label(self) -> None:
         if self._live:
-            text = "&nbsp;<b style='color:#1a7f37'>● LIVE</b>"
+            text = f"&nbsp;<b style='color:{status_color('#1a7f37')}'>● LIVE</b>"
             tip = "The newest messages appear at the top."
         else:
-            text = "&nbsp;<b style='color:#9a6700'>⏸ PAUSED</b>"
+            text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ PAUSED</b>"
             tip = "View paused; receiving and storage continue.\nSelect “Live” to show the newest messages again."
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
@@ -900,27 +902,27 @@ class MainWindow(QMainWindow):
         self.counter_label.setText(
             f"Received {format_count(snap.received)} · stored {format_count(snap.persisted)} · "
             f"queued {format_count(snap.queued)}<br>"
-            f"<span style='color:#555'>Live: {rates.received:.1f}/s received · "
+            f"<span style='color:{status_color('#555')}'>Live: {rates.received:.1f}/s received · "
             f"{rates.persisted:.1f}/s stored · {rates.dropped:.1f}/s dropped</span>")
         losses = snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing
         if losses:
             self.counter_label.setText(self.counter_label.text() +
-                                       f" · <b style='color:#b00020'>dropped {format_count(losses)}</b>")
+                                       f" · <b style='color:{status_color('#b00020')}'>dropped {format_count(losses)}</b>")
         if snap.tcp_connections_rejected:
             self.counter_label.setText(
                 self.counter_label.text() +
-                f" · <b style='color:#b00020'>TCP connections rejected "
+                f" · <b style='color:{status_color('#b00020')}'>TCP connections rejected "
                 f"{format_count(snap.tcp_connections_rejected)}</b>")
         if snap.tls_handshake_failures:
             self.counter_label.setText(
                 self.counter_label.text() +
-                f" · <b style='color:#9a6700'>TLS handshakes failed "
+                f" · <b style='color:{status_color('#9a6700')}'>TLS handshakes failed "
                 f"{format_count(snap.tls_handshake_failures)}</b>")
         storage = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(self.service.settings.max_storage_bytes)}"
         if snap.writer_error:
-            storage = f"<b style='color:#b00020'>{snap.writer_error}</b> · {storage}"
+            storage = f"<b style='color:{status_color('#b00020')}'>{snap.writer_error}</b> · {storage}"
         elif snap.storage_budget_exceeded:
-            storage = f"<b style='color:#9a6700'>Budget exceeded</b> · {storage}"
+            storage = f"<b style='color:{status_color('#9a6700')}'>Budget exceeded</b> · {storage}"
         self.storage_label.setText(storage)
         if not self._live:
             new = snap.persisted - self._persisted_at_pause
@@ -935,13 +937,13 @@ class MainWindow(QMainWindow):
         self.listen_action.setChecked(listening)
         self.listen_action.setText("■ Stop receiving" if listening else "▶ Start receiving")
         if snap.listener_state == "error":
-            text = f"<b style='color:#b00020'>{snap.listener_error}</b>"
+            text = f"<b style='color:{status_color('#b00020')}'>{snap.listener_error}</b>"
             if listening:
                 text += f" · Still receiving on {snap.listener_display_address}"
         elif listening:
-            text = f"<span style='color:#1a7f37'>{snap.listener_display_address} active</span>"
+            text = f"<span style='color:{status_color('#1a7f37')}'>{snap.listener_display_address} active</span>"
         else:
-            text = "<span style='color:#666'>Receiving stopped</span>"
+            text = f"<span style='color:{status_color('#666')}'>Receiving stopped</span>"
         self.listener_label.setText(text)
 
     def _toggle_listener(self, checked: bool) -> None:
@@ -970,6 +972,7 @@ class MainWindow(QMainWindow):
             Level.UNKNOWN: ("Firewall ?", "#666"),
         }[check.level]
         weight = "bold" if check.level >= Level.WARNING else "normal"
+        color = status_color(color)
         self.firewall_label.setText(
             f"<a href='firewall' style='color:{color};font-weight:{weight};text-decoration:none'>{text}</a>")
         self.firewall_label.setToolTip("\n".join((check.summary, *check.details, "Click for details")))
@@ -1017,7 +1020,7 @@ class MainWindow(QMainWindow):
             text, color, tip = "MCP …", "#666", "MCP server is starting"
         else:
             text, color, tip = "✖ MCP", "#b00020", mcp.error
-        html = f"<a href='mcp' style='color:{color};text-decoration:none'>{text}</a>"
+        html = f"<a href='mcp' style='color:{status_color(color)};text-decoration:none'>{text}</a>"
         if html != self.mcp_label.text():
             self.mcp_label.setText(html)
             self.mcp_label.setToolTip(f"{tip}\nClick for details")
@@ -1067,6 +1070,15 @@ class MainWindow(QMainWindow):
             return
         if not self.service.apply_settings(new):
             QMessageBox.warning(self, "Receiving", self.service.snapshot().listener_error)
+        apply_theme(new.theme)
+        if self.model.rowCount():
+            self.model.dataChanged.emit(
+                self.model.index(0, 0), self.model.index(self.model.rowCount() - 1, self.model.columnCount() - 1),
+                [Qt.BackgroundRole, Qt.ForegroundRole])
+        self.minimap.update()
+        if self.minimap.histogram is not None:
+            self._apply_histogram(self.minimap.histogram)
+        self._update_mode_label()
         if self.mcp is not None and not self.mcp.apply(new):
             QMessageBox.warning(self, "MCP server", self.mcp.error)
         self._show_mcp_state()

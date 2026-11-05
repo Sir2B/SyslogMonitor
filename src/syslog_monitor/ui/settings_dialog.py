@@ -5,12 +5,13 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from syslog_monitor.config import MAX_RETENTION_DAYS, MIN_STORAGE_MB, Settings
 from syslog_monitor.receiver import TlsConfigError, create_tls_context
+from syslog_monitor.ui.palette import status_color
 
 
 class SettingsDialog(QDialog):
@@ -65,6 +66,11 @@ class SettingsDialog(QDialog):
         self.autostart.setChecked(settings.autostart_listener)
 
         form = QFormLayout()
+        self.theme = QComboBox()
+        for label, value in (("System", "system"), ("Light", "light"), ("Dark", "dark")):
+            self.theme.addItem(label, value)
+        self.theme.setCurrentIndex(self.theme.findData(settings.theme))
+        form.addRow("Appearance:", self.theme)
         form.addRow("Listen address (IPv4):", self.host)
         form.addRow("", self.udp_enabled)
         form.addRow("UDP port:", self.port)
@@ -104,7 +110,7 @@ class SettingsDialog(QDialog):
             "UDP and TCP are unencrypted and unauthenticated; use trusted networks or TLS.\n"
             "A changed data directory takes effect after restarting the application.")
         hint.setWordWrap(True)
-        self.error_label = QLabel(styleSheet="color: #b00020")
+        self.error_label = QLabel(styleSheet=f"color: {status_color('#b00020')}")
         self.error_label.setWordWrap(True)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -143,6 +149,7 @@ class SettingsDialog(QDialog):
     def result_settings(self) -> Settings:
         return replace(
             self._original,
+            theme=self.theme.currentData(),
             bind_host=self.host.text().strip(),
             port=self.port.value(),
             udp_enabled=self.udp_enabled.isChecked(),

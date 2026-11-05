@@ -8,13 +8,13 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPalette
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass
 from syslog_monitor.query import Histogram
 from syslog_monitor.ui.formatting import format_count, format_ts
-from syslog_monitor.ui.palette import HIGHLIGHT_COLOR
+from syslog_monitor.ui.palette import HIGHLIGHT_COLOR, is_dark
 
 CLASS_COLORS = {
     SeverityClass.ERROR: QColor(214, 39, 40),
@@ -28,7 +28,7 @@ STACK_ORDER = (SeverityClass.ERROR, SeverityClass.WARNING, SeverityClass.UNKNOWN
                SeverityClass.INFO, SeverityClass.DEBUG)
 ERROR_STRIP_PX = 5
 HIGHLIGHT_STRIP_PX = 6
-AXIS_PX = 14
+AXIS_PX = 18
 PX_PER_BUCKET = 3
 DRAG_THRESHOLD_PX = 4
 
@@ -126,9 +126,9 @@ class MinimapWidget(QWidget):
     # --- painting -------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(250, 250, 252))
+        painter.fillRect(self.rect(), self.palette().color(QPalette.Base) if is_dark() else QColor(250, 250, 252))
         plot = self._plot_rect()
-        painter.setPen(QColor(200, 200, 210))
+        painter.setPen(self.palette().color(QPalette.Mid))
         painter.drawRect(plot)
         hist = self._hist
         self._paint_selected_times(painter, plot)
@@ -136,7 +136,7 @@ class MinimapWidget(QWidget):
             self._paint_bars(painter, plot, hist)
             self._paint_axis(painter, hist)
         else:
-            painter.setPen(QColor(120, 120, 120))
+            painter.setPen(self.palette().color(QPalette.Text))
             painter.drawText(plot, Qt.AlignCenter, "No data in this time range")
         self._paint_marker_and_selection(painter, plot)
         painter.end()
@@ -176,9 +176,9 @@ class MinimapWidget(QWidget):
                                      HIGHLIGHT_COLOR)
 
     def _paint_axis(self, painter: QPainter, hist: Histogram) -> None:
-        painter.setPen(QColor(90, 90, 90))
+        painter.setPen(self.palette().color(QPalette.Text))
         font = painter.font()
-        font.setPointSizeF(max(font.pointSizeF() - 1, 7))
+        font.setPointSizeF(max(font.pointSizeF(), 9))
         painter.setFont(font)
         axis = QRect(2, self.height() - AXIS_PX, self.width() - 4, AXIS_PX)
         same_day = format_ts(hist.start_ms)[:10] == format_ts(hist.end_ms)[:10]
@@ -193,8 +193,8 @@ class MinimapWidget(QWidget):
                 left = max(float(plot.left()), self.time_to_x(start_ms))
                 right = min(float(plot.right()), self.time_to_x(end_ms))
                 left = min(left, float(plot.right()) - 2)
-                painter.fillRect(QRectF(left, plot.top(), max(2.0, right - left), plot.height()),
-                                 QColor(90, 90, 90, 65))
+                color = QColor(200, 200, 210, 65) if is_dark() else QColor(90, 90, 90, 65)
+                painter.fillRect(QRectF(left, plot.top(), max(2.0, right - left), plot.height()), color)
         if self._press_x is not None and self._drag_x is not None:
             left, right = sorted((self._press_x, self._drag_x))
             painter.fillRect(QRect(left, plot.top(), right - left, plot.height()), QColor(0, 120, 215, 60))
@@ -207,7 +207,7 @@ class MinimapWidget(QWidget):
                 right = min(float(plot.right()), self.time_to_x(end_ms))
                 left = min(left, float(plot.right()) - 2)
                 painter.fillRect(QRectF(left, plot.top(), max(2.0, right - left), plot.height()),
-                                 QColor(80, 80, 80))
+                                 QColor(170, 175, 185) if is_dark() else QColor(80, 80, 80))
 
     # --- interaction ----------------------------------------------------------
     def mousePressEvent(self, event: QMouseEvent) -> None:

@@ -15,7 +15,7 @@ from PySide6.QtGui import QBrush, QColor
 from syslog_monitor.events import SeverityClass, facility_name, severity_class, severity_name
 from syslog_monitor.query import DEFAULT_HIGHLIGHT, Cursor, EventRow, HighlightRule, matching_highlight
 from syslog_monitor.ui.formatting import format_ts
-from syslog_monitor.ui.palette import highlight_text_color
+from syslog_monitor.ui.palette import highlight_text_color, is_dark
 
 COLUMNS = ("Time", "Severity", "Facility", "Sender", "Host", "Application", "Message")
 MAX_MESSAGE_DISPLAY = 500
@@ -26,6 +26,13 @@ ROW_BACKGROUND = {
     SeverityClass.UNKNOWN: QColor(236, 236, 240),
     SeverityClass.INFO: QColor(225, 239, 255),
     SeverityClass.DEBUG: QColor(242, 244, 246),
+}
+ROW_BACKGROUND_DARK = {
+    SeverityClass.ERROR: QColor("#39232a"),
+    SeverityClass.WARNING: QColor("#332c20"),
+    SeverityClass.UNKNOWN: QColor("#25232c"),
+    SeverityClass.INFO: QColor("#1c2733"),
+    SeverityClass.DEBUG: QColor("#1e2228"),
 }
 
 _Index = QModelIndex | QPersistentModelIndex
@@ -64,9 +71,13 @@ class EventTableModel(QAbstractTableModel):
             if rule:
                 color = QColor(rule.color)
                 return QBrush(color if role == Qt.BackgroundRole else highlight_text_color(color))
-        if role == Qt.BackgroundRole:
-            color = ROW_BACKGROUND.get(severity_class(row.severity))
-            return QBrush(color) if color else None
+        if role in (Qt.BackgroundRole, Qt.ForegroundRole):
+            dark = is_dark()
+            if role == Qt.ForegroundRole and not dark:
+                return None
+            colors = ROW_BACKGROUND_DARK if dark else ROW_BACKGROUND
+            color = colors[severity_class(row.severity)]
+            return QBrush(color if role == Qt.BackgroundRole else highlight_text_color(color))
         if role == Qt.ToolTipRole and index.column() == 6:
             return row.message[:2000]
         return None

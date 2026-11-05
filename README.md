@@ -217,8 +217,15 @@ trusted networks and restrict firewall access to known senders.
 
 ### Colors and highlights
 
-The dark gray background band spans the oldest through newest selected messages.
-The lighter gray band independently marks the currently visible table time span.
+**Settings > Appearance** offers **System** (default), **Light**, and **Dark**.
+The selection is saved and applies immediately, without restarting reception.
+Dark mode also adapts severity rows, table headers, scrollbars, filter panels,
+dialogs, status text, and the minimap, including when switching an open window.
+On Windows, the title bars follow the selected appearance as well (Qt/PySide6 6.8
+or later). Custom highlight colors retain their contrast-aware text.
+
+The gray background band spans the oldest through newest selected messages.
+A translucent gray band independently marks the currently visible table time span.
 
 Info/Notice rows are light blue; Debug rows are light gray. Their minimap bars are blue
 and gray respectively. A scrollable **Highlight** panel appears to the right of the

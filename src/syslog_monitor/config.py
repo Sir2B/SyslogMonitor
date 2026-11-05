@@ -46,6 +46,7 @@ class Settings:
     tls_cert_file: str = ""  # PEM certificate chain (may also contain the key)
     tls_key_file: str = ""  # empty: key is in the certificate file
     tls_ca_file: str = ""  # set: clients must present a certificate signed by this CA
+    theme: str = "system"
 
     def resolved_data_dir(self, config_dir: Path) -> Path:
         return Path(self.data_dir) if self.data_dir else config_dir / "data"
@@ -103,6 +104,8 @@ class Settings:
             errors.append("MCP port must be between 1 and 65535.")
         if not isinstance(self.boot_marker, str):
             errors.append("Boot marker must be text.")
+        if self.theme not in ("system", "light", "dark"):
+            errors.append("Theme must be system, light or dark.")
         return errors
 
 
