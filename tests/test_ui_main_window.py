@@ -593,6 +593,28 @@ def test_close_without_tray_quits_and_saves_state(qtbot, window, tmp_path):
     assert "persist me" in state.value("filters")
 
 
+def test_table_columns_can_be_hidden_and_visibility_is_saved(qtbot, window):
+    window._populate_column_menu()
+    sender_action = next(action for action in window.column_menu.actions()
+                         if action.text() == "Sender")
+    assert sender_action.isChecked()
+    sender_action.trigger()
+    assert window.table.isColumnHidden(3)
+
+    window._save_ui_state()
+    sender_action.trigger()
+    assert not window.table.isColumnHidden(3)
+    window._restore_ui_state()
+    assert window.table.isColumnHidden(3)
+
+    window._populate_column_menu()
+    for action in window.column_menu.actions():
+        if action.isChecked():
+            action.trigger()
+    assert sum(not window.table.isColumnHidden(index)
+               for index in range(window.model.columnCount())) == 1
+
+
 def test_stale_query_results_are_discarded(qtbot, tmp_path):
     from syslog_monitor.storage import EventStore
     store = EventStore(tmp_path)

@@ -13,7 +13,7 @@ from PySide6.QtGui import QAction, QCloseEvent, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableView, QToolBar,
-    QToolButton, QVBoxLayout, QWidget,
+    QMenu, QToolButton, QVBoxLayout, QWidget,
 )
 
 from syslog_monitor import APP_DISPLAY_NAME
@@ -312,6 +312,10 @@ class MainWindow(QMainWindow):
         header = self.table.horizontalHeader()
         header.setStretchLastSection(True)
         header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.column_menu = QMenu(self.table)
+        self.column_menu.aboutToShow.connect(self._populate_column_menu)
+        header.customContextMenuRequested.connect(self._show_column_menu)
         for column, width in enumerate((170, 80, 70, 110, 120, 130)):
             self.table.setColumnWidth(column, width)
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
@@ -384,6 +388,34 @@ class MainWindow(QMainWindow):
             self.statusBar().addPermanentWidget(widget)
         self._show_mcp_state()
         self._update_mode_label()
+
+    def _show_column_menu(self, position) -> None:
+        header = self.table.horizontalHeader()
+        self.column_menu.exec(header.mapToGlobal(position))
+
+    def _populate_column_menu(self) -> None:
+        self.column_menu.clear()
+        for column in range(self.model.columnCount()):
+            action = self.column_menu.addAction(str(self.model.headerData(column, Qt.Horizontal)))
+            action.setCheckable(True)
+            action.setChecked(not self.table.isColumnHidden(column))
+            action.toggled.connect(
+                lambda visible, index=column, item=action:
+                    self._set_column_visible(index, visible, item))
+
+    def _set_column_visible(self, column: int, visible: bool, action: QAction) -> None:
+        if not visible and sum(
+                not self.table.isColumnHidden(index) for index in range(self.model.columnCount())
+        ) == 1:
+            action.setChecked(True)
+            self.statusBar().showMessage("At least one table column must remain visible.", 4000)
+            return
+        self.table.setColumnHidden(column, not visible)
+        self._ui_state.setValue(
+            "visible_columns",
+            json.dumps([not self.table.isColumnHidden(index)
+                        for index in range(self.model.columnCount())]))
+        self._ui_state.sync()
 
     # ------------------------------------------------------------- time window
     def _range_duration(self) -> int | None:
@@ -1148,6 +1180,8 @@ class MainWindow(QMainWindow):
         s.setValue("splitter", self.splitter.saveState())
         s.setValue("rules_splitter", self.rules_splitter.saveState())
         s.setValue("columns", self.table.horizontalHeader().saveState())
+        s.setValue("visible_columns", json.dumps([
+            not self.table.isColumnHidden(index) for index in range(self.model.columnCount())]))
         s.setValue("range_index", self.range_combo.currentIndex())
         custom = self.custom_bounds() or (None, None)
         s.setValue("range_from", "" if custom[0] is None else str(custom[0]))
@@ -1188,6 +1222,22 @@ class MainWindow(QMainWindow):
             value = s.value(key)
             if value is not None:
                 restore(value)
+        stored_visibility = s.value("visible_columns")
+        if stored_visibility is not None:
+            try:
+                visibility = json.loads(stored_visibility)
+                if (not isinstance(visibility, list)
+                        or len(visibility) != self.model.columnCount()
+                        or any(type(value) is not bool for value in visibility)
+                        or not any(visibility)):
+                    raise ValueError("invalid column visibility")
+            except (TypeError, ValueError):
+                log.warning("Could not read stored column visibility; showing all columns")
+                self.statusBar().showMessage(
+                    "Could not read stored column visibility — showing all columns", 10000)
+                visibility = [True] * self.model.columnCount()
+            for index, visible in enumerate(visibility):
+                self.table.setColumnHidden(index, not visible)
         index = int(s.value("range_index", DEFAULT_RANGE_INDEX))
         if 0 <= index <= CUSTOM_RANGE_INDEX:
             if index == CUSTOM_RANGE_INDEX:
