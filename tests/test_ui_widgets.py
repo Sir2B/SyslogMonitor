@@ -32,6 +32,9 @@ def test_rule_delete_controls_remain_visible_without_hover(qtbot):
         panel.show()
     filter_row = bar.add_rule(FilterRule(value="example"))
     for row in (filter_row, highlights.rule_rows[0]):
+        assert row.edit_button.size() == row.remove_button.size()
+        assert row.edit_button.size().width() == 20
+        assert row.edit_button.size().height() == 20
         QApplication.sendEvent(row, QEvent(QEvent.Leave))
         assert not row.remove_button.isHidden()
         before = row.sizeHint()

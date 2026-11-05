@@ -35,10 +35,10 @@ class RuleRow(QWidget):
             "QToolButton { text-align: left; border: none; padding: 3px 5px; }"
         )
         self.edit_button = QToolButton(text="✎")
-        self.edit_button.setFixedSize(28, 26)
+        self.edit_button.setFixedSize(20, 20)
         self.edit_button.setToolTip("Edit filter rule")
         self.remove_button = QToolButton(text="×")
-        self.remove_button.setFixedSize(22, 26)
+        self.remove_button.setFixedSize(20, 20)
         self.remove_button.setToolTip("Remove filter rule")
         self.remove_button.setAccessibleName("Remove filter rule")
         self.chip = QWidget(self)
