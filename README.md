@@ -157,10 +157,10 @@ To render a screenshot locally, run `python packaging\make_screenshot.py`
 | **Severity** | Click a group in the colored legend to show only that group: Error, Warning, Info, Debug, or Unknown. Click the only selected group again or click “All” to reset the severity filter. Ctrl+click adds or removes groups. Info includes Notice and Info; Error includes Emergency through Error. Active groups are bold. Counts reflect the active filters. The severity menu also provides individual severities and presets. |
 | **Facility** | Separate selector, in addition to severity and text rules. |
 | **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Rules appear as compact summaries; click the pencil to edit a rule. Combine rules using AND or OR; non-matching messages are hidden. |
-| **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. A context menu is also available. Selecting multiple rows automatically pauses Live. |
+| **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. Right-click the table to see these shortcuts in the context menu. Selecting multiple rows automatically pauses Live. |
 | **Minimap** | Stacked bars per time bucket (red = errors, orange = warnings, etc.) with a red error strip above. The gray band marks the time span of the currently visible table rows and follows scrolling and resizing. With sparse data, the range is automatically narrowed and padded around existing messages. The displayed range appears in the header. **Click** to jump to a time. **Drag** to zoom to a selected range; “Reset zoom” restores automatic scaling. Tooltips show counts and milliseconds. |
 | **Details** | Shows all fields of the selected row, including raw data and parser notes. |
-| **F5** | Refresh the view. |
+| **F5** | Reload the current view and go to the latest messages matching the active filters and time range. |
 | **Close button** | Minimizes the window to the tray; receiving continues. Quit using the “Quit” menu item or tray menu. |
 
 ### Syslog reception

@@ -184,8 +184,10 @@ class MainWindow(QMainWindow):
         self.export_action = QAction("Export…", self)
         self.export_action.triggered.connect(self.open_export)
         quit_action = QAction("Quit", self, shortcut=QKeySequence.Quit)
+        quit_action.setToolTip("Quit the application (Ctrl+Q)")
         quit_action.triggered.connect(self.quit_application)
-        refresh_action = QAction("Refresh", self, shortcut=QKeySequence.Refresh)
+        refresh_action = QAction("Go to latest", self, shortcut=QKeySequence.Refresh)
+        refresh_action.setToolTip("Go to the newest matching messages (F5)")
         refresh_action.triggered.connect(self.refresh_all)
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
@@ -204,7 +206,8 @@ class MainWindow(QMainWindow):
                                      clearButtonEnabled=True)
         self.search_text.setToolTip(
             "Navigate matches within the active filters without hiding other messages.\n"
-            "Enter/F3: next (older) match; Shift+F3: previous (newer) match.")
+            "Ctrl+F: focus this field. Enter/F3: next (older) match; "
+            "Shift+F3: previous (newer) match.")
         self.search_mode = QComboBox()
         self.search_mode.addItem("Words", TEXT_MODE_WORDS)
         self.search_mode.addItem("Substring", TEXT_MODE_SUBSTRING)
