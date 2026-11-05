@@ -13,6 +13,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelInd
 from PySide6.QtGui import QBrush, QColor
 
 from syslog_monitor.events import SeverityClass, facility_name, severity_class, severity_name
+from syslog_monitor.i18n import tr
 from syslog_monitor.query import DEFAULT_HIGHLIGHT, Cursor, EventRow, HighlightRule, matching_highlight
 from syslog_monitor.ui.formatting import format_ts
 from syslog_monitor.ui.palette import highlight_text_color, is_dark
@@ -57,7 +58,7 @@ class EventTableModel(QAbstractTableModel):
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLUMNS[section]
+            return tr(COLUMNS[section])
         return None
 
     def data(self, index: _Index, role: int = Qt.DisplayRole):
@@ -88,7 +89,7 @@ class EventTableModel(QAbstractTableModel):
             case 0:
                 return format_ts(row.received_at)
             case 1:
-                return severity_name(row.severity)
+                return tr(severity_name(row.severity))
             case 2:
                 return facility_name(row.facility)
             case 3:

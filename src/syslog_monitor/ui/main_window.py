@@ -20,6 +20,7 @@ from syslog_monitor import APP_DISPLAY_NAME
 from syslog_monitor.config import Settings, save_settings
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass, severity_class
 from syslog_monitor.firewall import FirewallCheck, Level, check_firewalls, current_programs, remedy
+from syslog_monitor.i18n import language, tr
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
     DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, TEXT_MODE_WORDS, Cursor, EventFilter, HighlightBatch, Histogram,
@@ -152,52 +153,52 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI setup
     def _build_ui(self) -> None:
-        toolbar = QToolBar("Controls", objectName="main_toolbar", movable=False)
+        toolbar = QToolBar(tr("Controls"), objectName="main_toolbar", movable=False)
         self.addToolBar(toolbar)
-        self.listen_action = QAction("Receive", self, checkable=True)
-        self.listen_action.setToolTip("Start/stop the enabled UDP, TCP and TLS listeners")
+        self.listen_action = QAction(tr("Receive"), self, checkable=True)
+        self.listen_action.setToolTip(tr("Start/stop the enabled UDP, TCP and TLS listeners"))
         self.listen_action.triggered.connect(self._toggle_listener)
-        self.live_action = QAction("● Live", self, checkable=True, checked=True)
-        self.live_action.setToolTip("Live: automatically show the newest messages.\n"
-                                    "Off: pause the view; receiving and storage continue.")
+        self.live_action = QAction(tr("● Live"), self, checkable=True, checked=True)
+        self.live_action.setToolTip(tr("Live: automatically show the newest messages.\n"
+                                       "Off: pause the view; receiving and storage continue."))
         self.live_action.toggled.connect(self.set_live)
         self.range_combo = QComboBox()
         for label, _ in RANGE_PRESETS:
-            self.range_combo.addItem(label)
-        self.range_combo.addItem("From / To…")
+            self.range_combo.addItem(tr(label))
+        self.range_combo.addItem(tr("From / To…"))
         self.range_combo.setCurrentIndex(DEFAULT_RANGE_INDEX)
         self.range_combo.currentIndexChanged.connect(self._range_index_changed)
-        self.range_from_check = QCheckBox("From")
-        self.range_to_check = QCheckBox("To")
+        self.range_from_check = QCheckBox(tr("From"))
+        self.range_to_check = QCheckBox(tr("To"))
         self.range_from = QDateTimeEdit(calendarPopup=True, displayFormat=DATETIME_FORMAT)
         self.range_to = QDateTimeEdit(calendarPopup=True, displayFormat=DATETIME_FORMAT)
-        self.range_from_check.setToolTip("Optional start time (inclusive). Unchecked: from the oldest message.")
-        self.range_to_check.setToolTip("Optional end time (includes the displayed second).\n"
-                                       "Unchecked: until now; new messages appear live.")
+        self.range_from_check.setToolTip(tr("Optional start time (inclusive). Unchecked: from the oldest message."))
+        self.range_to_check.setToolTip(tr("Optional end time (includes the displayed second).\n"
+                                          "Unchecked: until now; new messages appear live."))
         self._custom_timer = QTimer(self, singleShot=True, interval=400)  # wait until typing pauses
         self._custom_timer.timeout.connect(self._range_changed)
         for widget in (self.range_from_check, self.range_to_check):
             widget.toggled.connect(self._custom_edited)
         for widget in (self.range_from, self.range_to):
             widget.dateTimeChanged.connect(self._custom_edited)
-        self.reset_zoom_action = QAction("Reset zoom", self, enabled=False)
+        self.reset_zoom_action = QAction(tr("Reset zoom"), self, enabled=False)
         self.reset_zoom_action.triggered.connect(self.reset_zoom)
-        self.clear_view_action = QAction("🧹 Clear view", self, shortcut=QKeySequence("Ctrl+L"))
+        self.clear_view_action = QAction(tr("🧹 Clear view"), self, shortcut=QKeySequence("Ctrl+L"))
         self.clear_view_action.setToolTip(
-            "Show only messages from now on (Ctrl+L) by setting “From” to the current time.\n"
-            "Nothing is deleted. Choose another range or uncheck “From” to show older messages again.")
+            tr("Show only messages from now on (Ctrl+L) by setting “From” to the current time.\n"
+               "Nothing is deleted. Choose another range or uncheck “From” to show older messages again."))
         self.clear_view_action.triggered.connect(self.clear_view)
-        settings_action = QAction("Settings…", self)
+        settings_action = QAction(tr("Settings…"), self)
         settings_action.triggered.connect(self.open_settings)
-        self.about_action = QAction("About…", self)
+        self.about_action = QAction(tr("About…"), self)
         self.about_action.triggered.connect(self.show_about)
-        self.export_action = QAction("Export…", self)
+        self.export_action = QAction(tr("Export…"), self)
         self.export_action.triggered.connect(self.open_export)
-        quit_action = QAction("Quit", self, shortcut=QKeySequence.Quit)
-        quit_action.setToolTip("Quit the application (Ctrl+Q)")
+        quit_action = QAction(tr("Quit"), self, shortcut=QKeySequence.Quit)
+        quit_action.setToolTip(tr("Quit the application (Ctrl+Q)"))
         quit_action.triggered.connect(self.quit_application)
-        refresh_action = QAction("Go to latest", self, shortcut=QKeySequence.Refresh)
-        refresh_action.setToolTip("Go to the newest matching messages (F5)")
+        refresh_action = QAction(tr("Go to latest"), self, shortcut=QKeySequence.Refresh)
+        refresh_action.setToolTip(tr("Go to the newest matching messages (F5)"))
         refresh_action.triggered.connect(self.refresh_all)
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
@@ -212,19 +213,19 @@ class MainWindow(QMainWindow):
 
         self.filter_bar = FilterBar()
         self.filter_bar.changed.connect(self.refresh_all)
-        self.search_text = QLineEdit(placeholderText="Find matches while keeping context…",
+        self.search_text = QLineEdit(placeholderText=tr("Find matches while keeping context…"),
                                      clearButtonEnabled=True)
         self.search_text.setToolTip(
-            "Navigate matches within the active filters without hiding other messages.\n"
-            "Ctrl+F: focus this field. Enter/F3: next (older) match; "
-            "Shift+F3: previous (newer) match.")
+            tr("Navigate matches within the active filters without hiding other messages.\n"
+               "Ctrl+F: focus this field. Enter/F3: next (older) match; "
+               "Shift+F3: previous (newer) match."))
         self.search_mode = QComboBox()
-        self.search_mode.addItem("Words", TEXT_MODE_WORDS)
-        self.search_mode.addItem("Substring", TEXT_MODE_SUBSTRING)
-        self.search_previous = QPushButton("▲ Newer")
-        self.search_previous.setToolTip("Previous (newer) match – Shift+F3")
-        self.search_next = QPushButton("▼ Older")
-        self.search_next.setToolTip("Next (older) match – Enter/F3")
+        self.search_mode.addItem(tr("Words"), TEXT_MODE_WORDS)
+        self.search_mode.addItem(tr("Substring"), TEXT_MODE_SUBSTRING)
+        self.search_previous = QPushButton(tr("▲ Newer"))
+        self.search_previous.setToolTip(tr("Previous (newer) match – Shift+F3"))
+        self.search_next = QPushButton(tr("▼ Older"))
+        self.search_next.setToolTip(tr("Next (older) match – Enter/F3"))
         self.search_result = QLabel()
         self.search_result.setTextFormat(Qt.PlainText)
         self.search_previous.clicked.connect(lambda: self.find_text(newer=True))
@@ -234,7 +235,7 @@ class MainWindow(QMainWindow):
         self.search_mode.currentIndexChanged.connect(self._reset_search)
         self._reset_search()
         search_row = QHBoxLayout()
-        for widget in (QLabel("Search:"), self.search_text, self.search_mode,
+        for widget in (QLabel(tr("Search:")), self.search_text, self.search_mode,
                        self.search_previous, self.search_next, self.search_result):
             search_row.addWidget(widget)
         search_row.setStretch(1, 3)
@@ -257,7 +258,7 @@ class MainWindow(QMainWindow):
         minimap_layout.setContentsMargins(6, 4, 6, 4)
         minimap_layout.setSpacing(2)
         time_controls = QHBoxLayout()
-        range_label = QLabel("Time range:")
+        range_label = QLabel(tr("Time range:"))
         range_label.setBuddy(self.range_combo)
         time_controls.addWidget(range_label)
         time_controls.addWidget(self.range_combo)
@@ -282,9 +283,9 @@ class MainWindow(QMainWindow):
         self.legend.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
         self.legend.linkActivated.connect(self._filter_severity)
         self.legend.setToolTip(
-            "Click: show only this severity group; click again: show all.\n"
-            "Ctrl+click: add/remove groups. All: reset the severity filter.\n"
-            "Counts apply to the active filters.")
+            tr("Click: show only this severity group; click again: show all.\n"
+               "Ctrl+click: add/remove groups. All: reset the severity filter.\n"
+               "Counts apply to the active filters."))
         time_controls.addWidget(self.legend)
 
         self.model = EventTableModel(MAX_ROWS, self)
@@ -304,12 +305,12 @@ class MainWindow(QMainWindow):
             "QTableView::item:selected { background-color: #505050; color: #ffffff; "
             "border-top: 1px solid #303030; border-bottom: 1px solid #303030; }"
         )
-        self.table.setToolTip("Ctrl/Shift: select multiple rows. Ctrl+C: copy selection.")
-        self.copy_action = QAction("Copy selected rows", self.table,
+        self.table.setToolTip(tr("Ctrl/Shift: select multiple rows. Ctrl+C: copy selection."))
+        self.copy_action = QAction(tr("Copy selected rows"), self.table,
                                    shortcut=QKeySequence.Copy, enabled=False)
         self.copy_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.copy_action.triggered.connect(self.copy_selected_rows)
-        self.select_all_action = QAction("Select all loaded rows", self.table,
+        self.select_all_action = QAction(tr("Select all loaded rows"), self.table,
                                          shortcut=QKeySequence.SelectAll)
         self.select_all_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.select_all_action.triggered.connect(self.table.selectAll)
@@ -340,7 +341,7 @@ class MainWindow(QMainWindow):
 
         self.details = QPlainTextEdit(readOnly=True)
         self.details.setFont(QFont("Consolas", 9))
-        self.details.setPlaceholderText("Select a message to view its details and raw data.")
+        self.details.setPlaceholderText(tr("Select a message to view its details and raw data."))
 
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(self.table)
@@ -400,9 +401,9 @@ class MainWindow(QMainWindow):
         self._update_mode_label()
 
     def _install_zoom_shortcuts(self) -> None:
-        self.zoom_in_action = QAction("Zoom in", self, shortcut=QKeySequence.ZoomIn)
-        self.zoom_out_action = QAction("Zoom out", self, shortcut=QKeySequence.ZoomOut)
-        self.zoom_reset_action = QAction("Reset zoom", self, shortcut=QKeySequence("Ctrl+0"))
+        self.zoom_in_action = QAction(tr("Zoom in"), self, shortcut=QKeySequence.ZoomIn)
+        self.zoom_out_action = QAction(tr("Zoom out"), self, shortcut=QKeySequence.ZoomOut)
+        self.zoom_reset_action = QAction(tr("Reset zoom"), self, shortcut=QKeySequence("Ctrl+0"))
         for action in (self.zoom_in_action, self.zoom_out_action, self.zoom_reset_action):
             action.setShortcutContext(Qt.ApplicationShortcut)
             self.addAction(action)
@@ -436,7 +437,7 @@ class MainWindow(QMainWindow):
                 not self.table.isColumnHidden(index) for index in range(self.model.columnCount())
         ) == 1:
             action.setChecked(True)
-            self.statusBar().showMessage("At least one table column must remain visible.", 4000)
+            self.statusBar().showMessage(tr("At least one table column must remain visible."), 4000)
             return
         self.table.setColumnHidden(column, not visible)
         self._ui_state.setValue(
@@ -523,9 +524,9 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- loading
     def _on_query_error(self, message: str) -> None:
-        self.statusBar().showMessage(f"Query error: {message}", 10000)
-        if self.search_result.text() == "Searching…":
-            self.search_result.setText(f"Search failed: {message}")
+        self.statusBar().showMessage(tr("Query error: {message}", message=message), 10000)
+        if self.search_result.text() == tr("Searching…"):
+            self.search_result.setText(tr("Search failed: {message}", message=message))
 
     @Slot()
     def refresh_all(self) -> None:
@@ -553,7 +554,7 @@ class MainWindow(QMainWindow):
     def _highlight_changed(self) -> None:
         self.model.set_highlight_rules(self.highlights.rules())
         self.highlights.invalidate_counts()
-        self.highlight_label.setText("Updating…" if self.highlights.active_rules() else "Off")
+        self.highlight_label.setText(tr("Updating…") if self.highlights.active_rules() else tr("Off"))
         self.highlight_label.setToolTip("")
         self._highlight_timer.start()
 
@@ -583,29 +584,29 @@ class MainWindow(QMainWindow):
         if self.tray:
             self.tray.show_highlight(title, body)
         else:
-            self.statusBar().showMessage(f"{title} – {body.splitlines()[0]}", 15000)
+            self.statusBar().showMessage(f"{tr(title)} – {tr(body.splitlines()[0])}", 15000)
 
     def _apply_histogram(self, hist: Histogram) -> None:
         self.minimap.set_histogram(hist)
         self.highlights.set_counts(hist)
         total_highlights = sum(hist.highlights)
         self.highlight_label.setText(
-            f"{format_count(total_highlights)} matches"
-            if self.highlights.active_rules() else "Off")
+            tr("{count} matches", count=format_count(total_highlights))
+            if self.highlights.active_rules() else tr("Off"))
         self.highlight_label.setToolTip("\n".join(
             f"{rule.text}: {format_count(sum(bucket[i] for bucket in hist.highlight_counts))}"
             for i, rule in enumerate(hist.highlight_rules)))
-        mode = "Zoom" if self._zoom else "automatic"
+        mode = tr("Zoom") if self._zoom else tr("automatic")
         start, end = format_ts(hist.start_ms)[:19], format_ts(hist.end_ms)[:19]
         if start[:10] == end[:10]:
             end = end[11:]
-        self.minimap_range_label.setText(f"Minimap: {start} – {end} ({mode})")
+        self.minimap_range_label.setText(f"{tr('Minimap:')} {start} – {end} ({mode})")
         self.minimap_range_label.setToolTip(
             f"Minimap: {format_ts(hist.start_ms)} – {format_ts(hist.end_ms)}\n"
-            + ("Zoom: exact selected range" if self._zoom
-               else "Automatically fitted to the available data in the selected range"))
-        parts = [f"Total <b>{format_count(hist.total)}</b>",
-                 "<a href='all'>All</a>"]
+            + (tr("Zoom: exact selected range") if self._zoom
+               else tr("Automatically fitted to the available data in the selected range")))
+        parts = [f"{tr('Total')} <b>{format_count(hist.total)}</b>",
+                 f"<a href='all'>{tr('All')}</a>"]
         selected = self.filter_bar.selected_severities()
         for cls in SeverityClass:
             color = (CLASS_COLORS[cls].lighter(150) if is_dark() else CLASS_COLORS[cls]).name()
@@ -613,14 +614,14 @@ class MainWindow(QMainWindow):
                 severity_class(sev) == cls for sev in selected)
             weight = "bold" if active else "normal"
             parts.append(f"<a href='{int(cls)}' style='color:{color};font-weight:{weight}'>"
-                         f"■ {SEVERITY_CLASS_LABELS[cls]} {format_count(hist.class_total(cls))}</a>")
+                         f"■ {tr(SEVERITY_CLASS_LABELS[cls])} {format_count(hist.class_total(cls))}</a>")
         self.legend.setText(" &nbsp; ".join(parts))
         if self.highlights.active_rules():
             swatches = " ".join(
                 f"<span style='color:{rule.color}'>■</span>" for rule in hist.highlight_rules)
             self.legend.setText(self.legend.text() +
                 f" &nbsp; {swatches} "
-                f"Highlight {format_count(total_highlights)}")
+                f"{tr('Highlight')} {format_count(total_highlights)}")
 
     def _filter_severity(self, link: str) -> None:
         if link == "all":
@@ -739,7 +740,7 @@ class MainWindow(QMainWindow):
         revision = self._highlight_revision
         cursor = self._highlight_cursor
         f = self.list_filter()
-        self.search_result.setText("Searching highlight matches…")
+        self.search_result.setText(tr("Searching highlight matches…"))
 
         def job(runner: QueryRunner):
             hit = runner.find_highlight_match(f, text, cursor, newer=bool(cursor and newer))
@@ -752,11 +753,12 @@ class MainWindow(QMainWindow):
                 return
             hit, context = result
             if hit is None:
-                self.search_result.setText("No more highlight matches" if cursor else "No highlight matches")
+                self.search_result.setText(tr("No more highlight matches") if cursor
+                                           else tr("No highlight matches"))
                 return
             self._highlight_cursor = hit.cursor
             self._apply_jump(context, PAGE_SIZE, PAGE_SIZE // 2)
-            self.search_result.setText("Highlight match selected")
+            self.search_result.setText(tr("Highlight match selected"))
 
         self.queries.submit(job, apply)
         self._request_histogram()
@@ -770,7 +772,7 @@ class MainWindow(QMainWindow):
         self._older_request = self._newer_request = self._live_request = None
         revision = self._search_revision
         f, mode, cursor = self.list_filter(), self.search_mode.currentData(), self._search_cursor
-        self.search_result.setText("Searching…")
+        self.search_result.setText(tr("Searching…"))
 
         def job(runner: QueryRunner):
             hit = runner.find_match(f, text, mode, cursor, newer=newer if cursor else False)
@@ -783,11 +785,11 @@ class MainWindow(QMainWindow):
                 return
             hit, context = result
             if hit is None:
-                self.search_result.setText("No more matches" if cursor else "No matches")
+                self.search_result.setText(tr("No more matches") if cursor else tr("No matches"))
                 return
             self._search_cursor = hit.cursor
             self._apply_jump(context, PAGE_SIZE, PAGE_SIZE // 2)
-            self.search_result.setText("Match selected")
+            self.search_result.setText(tr("Match selected"))
 
         self.queries.submit(job, apply)
         self._request_histogram()
@@ -907,18 +909,18 @@ class MainWindow(QMainWindow):
     def _update_mode_label(self) -> None:
         if self._live:
             text = f"&nbsp;<b style='color:{status_color('#1a7f37')}'>● LIVE</b>"
-            tip = "The newest messages appear at the top."
+            tip = tr("The newest messages appear at the top.")
         else:
             text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ PAUSED</b>"
-            tip = "View paused; receiving and storage continue.\nSelect “Live” to show the newest messages again."
+            tip = tr("View paused; receiving and storage continue.\nSelect “Live” to show the newest messages again.")
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
             tip += f"\nZoom: {format_ts(self._zoom[0])[:19]} – {format_ts(self._zoom[1])[:19]}"
         custom = self.custom_bounds()
         if custom and custom[0] is not None and custom[1] is None:
-            text += f" · from {format_ts(custom[0])[11:19]}"
-            tip += (f"\nRange from {format_ts(custom[0])[:19]}; older messages are "
-                    "hidden but still stored.")
+            text += f" · {tr('from')} {format_ts(custom[0])[11:19]}"
+            tip += tr("\nRange from {time}; older messages are hidden but still stored.",
+                      time=format_ts(custom[0])[:19])
         self.mode_label.setText(text)
         self.mode_label.setToolTip(tip)
 
@@ -943,7 +945,7 @@ class MainWindow(QMainWindow):
         if not rows:
             return
         QApplication.clipboard().setText(self.model.copy_text(rows))
-        self.statusBar().showMessage(f"Copied {len(rows)} rows", 5000)
+        self.statusBar().showMessage(tr("Copied {count} rows", count=len(rows)), 5000)
 
     def _on_current_row(self, current, _previous) -> None:
         row = self.model.row_at(current.row())
@@ -955,7 +957,7 @@ class MainWindow(QMainWindow):
 
     def _show_details(self, event) -> None:
         if event is None:
-            self.details.setPlainText("Message no longer exists (deleted by retention).")
+            self.details.setPlainText(tr("Message no longer exists (deleted by retention)."))
         else:
             self.details.setPlainText(format_event_details(event))
 
@@ -966,10 +968,11 @@ class MainWindow(QMainWindow):
         rates = self._rate_tracker.update(snap)
         self._show_listener_state(snap)
         self._show_mcp_state()
-        counts = (f"Received {format_count(snap.received)} · stored {format_count(snap.persisted)} · "
-                  f"queued {format_count(snap.queued)}")
-        live_rates = (f"Live: {rates.received:.1f}/s received · "
-                      f"{rates.persisted:.1f}/s stored · {rates.dropped:.1f}/s dropped")
+        counts = tr("Received {received} · stored {stored} · queued {queued}",
+                    received=format_count(snap.received), stored=format_count(snap.persisted),
+                    queued=format_count(snap.queued))
+        live_rates = tr("Live: {received:.1f}/s received · {stored:.1f}/s stored · {dropped:.1f}/s dropped",
+                        received=rates.received, stored=rates.persisted, dropped=rates.dropped)
         self.counter_label.setToolTip(f"{counts}\n{live_rates}")
         if self.zoom_controller.factor > 1.0:
             self.counter_label.setText(counts)
@@ -979,26 +982,27 @@ class MainWindow(QMainWindow):
         losses = snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing
         if losses:
             self.counter_label.setText(self.counter_label.text() +
-                                       f" · <b style='color:{status_color('#b00020')}'>dropped {format_count(losses)}</b>")
+                                       f" · <b style='color:{status_color('#b00020')}'>{tr('dropped')} {format_count(losses)}</b>")
         if snap.tcp_connections_rejected:
             self.counter_label.setText(
                 self.counter_label.text() +
-                f" · <b style='color:{status_color('#b00020')}'>TCP connections rejected "
+                f" · <b style='color:{status_color('#b00020')}'>{tr('TCP connections rejected')} "
                 f"{format_count(snap.tcp_connections_rejected)}</b>")
         if snap.tls_handshake_failures:
             self.counter_label.setText(
                 self.counter_label.text() +
-                f" · <b style='color:{status_color('#9a6700')}'>TLS handshakes failed "
+                f" · <b style='color:{status_color('#9a6700')}'>{tr('TLS handshakes failed')} "
                 f"{format_count(snap.tls_handshake_failures)}</b>")
         storage = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(self.service.settings.max_storage_bytes)}"
         if snap.writer_error:
             storage = f"<b style='color:{status_color('#b00020')}'>{snap.writer_error}</b> · {storage}"
         elif snap.storage_budget_exceeded:
-            storage = f"<b style='color:{status_color('#9a6700')}'>Budget exceeded</b> · {storage}"
+            storage = f"<b style='color:{status_color('#9a6700')}'>{tr('Budget exceeded')}</b> · {storage}"
         self.storage_label.setText(storage)
         if not self._live:
             new = snap.persisted - self._persisted_at_pause
-            self.statusBar().showMessage(f"Paused — {format_count(new)} new messages stored since pausing")
+            self.statusBar().showMessage(tr("Paused — {count} new messages stored since pausing",
+                                            count=format_count(new)))
         else:
             self.statusBar().clearMessage()
         if self.tray:
@@ -1007,22 +1011,22 @@ class MainWindow(QMainWindow):
     def _show_listener_state(self, snap: StatsSnapshot) -> None:
         listening = self.service.listening
         self.listen_action.setChecked(listening)
-        self.listen_action.setText("■ Stop receiving" if listening else "▶ Start receiving")
+        self.listen_action.setText(tr("■ Stop receiving") if listening else tr("▶ Start receiving"))
         if snap.listener_state == "error":
             text = f"<b style='color:{status_color('#b00020')}'>{snap.listener_error}</b>"
             if listening:
-                text += f" · Still receiving on {snap.listener_display_address}"
+                text += f" · {tr('Still receiving on')} {snap.listener_display_address}"
         elif listening:
-            text = f"<span style='color:{status_color('#1a7f37')}'>{snap.listener_display_address} active</span>"
+            text = f"<span style='color:{status_color('#1a7f37')}'>{snap.listener_display_address} {tr('active')}</span>"
         else:
-            text = f"<span style='color:{status_color('#666')}'>Receiving stopped</span>"
+            text = f"<span style='color:{status_color('#666')}'>{tr('Receiving stopped')}</span>"
         self.listener_label.setText(text)
 
     def _toggle_listener(self, checked: bool) -> None:
         if checked:
             if not self.service.start_listener():
-                QMessageBox.warning(self, "Receiving", self.service.snapshot().listener_error +
-                                    "\n\nChange the port in Settings or stop the process using it.")
+                QMessageBox.warning(self, tr("Receiving"), self.service.snapshot().listener_error +
+                                    "\n\n" + tr("Change the port in Settings or stop the process using it."))
         else:
             self.service.stop_listener()
         self._update_status()
@@ -1038,16 +1042,16 @@ class MainWindow(QMainWindow):
     def _apply_firewall(self, check: FirewallCheck) -> None:
         self._firewall_check = check
         text, color = {
-            Level.OK: ("Firewall ✓", "#1a7f37"),
-            Level.WARNING: ("⚠ Firewall: port not allowed", "#9a6700"),
-            Level.ERROR: ("✖ Firewall blocked", "#b00020"),
-            Level.UNKNOWN: ("Firewall ?", "#666"),
+            Level.OK: (tr("Firewall ✓"), "#1a7f37"),
+            Level.WARNING: (tr("⚠ Firewall: port not allowed"), "#9a6700"),
+            Level.ERROR: (tr("✖ Firewall blocked"), "#b00020"),
+            Level.UNKNOWN: (tr("Firewall ?"), "#666"),
         }[check.level]
         weight = "bold" if check.level >= Level.WARNING else "normal"
         color = status_color(color)
         self.firewall_label.setText(
             f"<a href='firewall' style='color:{color};font-weight:{weight};text-decoration:none'>{text}</a>")
-        self.firewall_label.setToolTip("\n".join((check.summary, *check.details, "Click for details")))
+        self.firewall_label.setToolTip("\n".join((check.summary, *check.details, tr("Click for details"))))
         if check.level >= Level.WARNING and check.level > self._firewall_warned_level:
             log.warning("Firewall: %s – %s", check.summary, "; ".join(check.details))
             if self.tray:
@@ -1061,17 +1065,17 @@ class MainWindow(QMainWindow):
         if check is None:
             return
         box = QMessageBox(self)
-        box.setWindowTitle("Firewall check")
+        box.setWindowTitle(tr("Firewall check"))
         box.setIcon({Level.OK: QMessageBox.Information, Level.WARNING: QMessageBox.Warning,
                      Level.ERROR: QMessageBox.Critical}.get(check.level, QMessageBox.Question))
         box.setText(check.summary)
         lines, command = remedy(check, self.service.settings.port, current_programs()[0])
         hints = [*check.details, *([""] if lines else []), *lines,
-                 "", "Reading requires no administrator rights; nothing is changed."]
+                 "", tr("Reading requires no administrator rights; nothing is changed.")]
         box.setInformativeText("\n".join(hints))
         box.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        copy_button = box.addButton("Copy command", QMessageBox.ActionRole) if command else None
-        recheck_button = box.addButton("Check again", QMessageBox.ActionRole)
+        copy_button = box.addButton(tr("Copy command"), QMessageBox.ActionRole) if command else None
+        recheck_button = box.addButton(tr("Check again"), QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)
         box.exec()
         if copy_button is not None and box.clickedButton() is copy_button:
@@ -1084,18 +1088,18 @@ class MainWindow(QMainWindow):
         mcp = self.mcp
         self.mcp_label.setVisible(mcp is not None)
         if mcp is None or not mcp.enabled:
-            text, color, tip = "MCP off", "#666", "MCP server for AI assistants is disabled."
+            text, color, tip = tr("MCP off"), "#666", tr("MCP server for AI assistants is disabled.")
         elif mcp.running:
             text, color = f"MCP ✓ :{mcp.port}", "#1a7f37"
-            tip = f"MCP server (local only, read-only, no authentication): {mcp.url}"
+            tip = tr("MCP server (local only, read-only, no authentication): {url}", url=mcp.url)
         elif mcp.starting:
-            text, color, tip = "MCP …", "#666", "MCP server is starting"
+            text, color, tip = "MCP …", "#666", tr("MCP server is starting")
         else:
             text, color, tip = "✖ MCP", "#b00020", mcp.error
         html = f"<a href='mcp' style='color:{status_color(color)};text-decoration:none'>{text}</a>"
         if html != self.mcp_label.text():
             self.mcp_label.setText(html)
-            self.mcp_label.setToolTip(f"{tip}\nClick for details")
+            self.mcp_label.setToolTip(f"{tip}\n{tr('Click for details')}")
 
     @Slot()
     def show_mcp_details(self, _link: str = "") -> None:
@@ -1105,23 +1109,23 @@ class MainWindow(QMainWindow):
         port = mcp.port or self.service.settings.mcp_port
         snippet = json.dumps(client_config(port), indent=2)
         box = QMessageBox(self)
-        box.setWindowTitle("MCP server")
+        box.setWindowTitle(tr("MCP server"))
         box.setIcon(QMessageBox.Information if mcp.running or not mcp.enabled else QMessageBox.Warning)
         if mcp.running:
-            box.setText(f"MCP server is running: {mcp.url}")
+            box.setText(tr("MCP server is running: {url}", url=mcp.url))
         elif mcp.enabled:
-            box.setText(f"MCP server is not running: {mcp.error}")
+            box.setText(tr("MCP server is not running: {error}", error=mcp.error))
         else:
-            box.setText("MCP server is disabled (Settings).")
+            box.setText(tr("MCP server is disabled (Settings)."))
         box.setInformativeText(
-            "AI assistants (e.g. GitHub Copilot in VS Code) can read stored syslog messages, "
-            "for example “show all messages since the last reboot.”\n\n"
-            "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local "
-            "programs can also retrieve messages. Depending on the AI integration, queried "
-            "messages may be sent to an external provider.\n\n"
-            "VS Code: run “MCP: Open User Configuration” and add:\n\n" + snippet)
+            tr("AI assistants (e.g. GitHub Copilot in VS Code) can read stored syslog messages, "
+               "for example “show all messages since the last reboot.”\n\n"
+               "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local "
+               "programs can also retrieve messages. Depending on the AI integration, queried "
+               "messages may be sent to an external provider.\n\n"
+               "VS Code: run “MCP: Open User Configuration” and add:\n\n") + snippet)
         box.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        copy_button = box.addButton("Copy configuration", QMessageBox.ActionRole)
+        copy_button = box.addButton(tr("Copy configuration"), QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)
         box.exec()
         if box.clickedButton() is copy_button:
@@ -1150,10 +1154,10 @@ class MainWindow(QMainWindow):
         try:
             save_settings(self._settings_path, new)
         except OSError as exc:
-            QMessageBox.critical(self, "Settings", f"Could not save settings: {exc}")
+            QMessageBox.critical(self, tr("Settings"), tr("Could not save settings: {error}", error=exc))
             return
         if not self.service.apply_settings(new):
-            QMessageBox.warning(self, "Receiving", self.service.snapshot().listener_error)
+            QMessageBox.warning(self, tr("Receiving"), self.service.snapshot().listener_error)
         apply_theme(new.theme)
         if self.model.rowCount():
             self.model.dataChanged.emit(
@@ -1164,11 +1168,15 @@ class MainWindow(QMainWindow):
             self._apply_histogram(self.minimap.histogram)
         self._update_mode_label()
         if self.mcp is not None and not self.mcp.apply(new):
-            QMessageBox.warning(self, "MCP server", self.mcp.error)
+            QMessageBox.warning(self, tr("MCP server"), self.mcp.error)
         self._show_mcp_state()
         if new.data_dir != old.data_dir:
-            QMessageBox.information(self, "Data directory",
-                                    "The new data directory will be used after restarting the application.")
+            QMessageBox.information(self, tr("Data directory"),
+                                    tr("The new data directory will be used after restarting the application."))
+        if new.language != language():
+            QMessageBox.information(
+                self, tr("Language"),
+                tr("The language will change after restarting the application."))
         self._update_status()
         self.check_firewall()
 
@@ -1248,7 +1256,7 @@ class MainWindow(QMainWindow):
                 self.highlights.restore_state(rules)
         except (TypeError, ValueError):
             log.warning("Could not read stored highlights; using defaults")
-            self.statusBar().showMessage("Could not read stored highlights — using defaults", 10000)
+            self.statusBar().showMessage(tr("Could not read stored highlights — using defaults"), 10000)
             self.highlights.restore_state([{"text": DEFAULT_HIGHLIGHT,
                                            "color": HighlightRule().color, "enabled": True,
                                            "popup": legacy_popup}])
@@ -1272,7 +1280,7 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError):
                 log.warning("Could not read stored column visibility; showing all columns")
                 self.statusBar().showMessage(
-                    "Could not read stored column visibility — showing all columns", 10000)
+                    tr("Could not read stored column visibility — showing all columns"), 10000)
                 visibility = [True] * self.model.columnCount()
             for index, visible in enumerate(visibility):
                 self.table.setColumnHidden(index, not visible)
@@ -1297,6 +1305,6 @@ class MainWindow(QMainWindow):
                 raise ValueError("stored zoom is outside the supported range")
         except (TypeError, ValueError):
             log.warning("Could not read stored zoom; using the default")
-            self.statusBar().showMessage("Could not read stored zoom — using 100%", 10000)
+            self.statusBar().showMessage(tr("Could not read stored zoom — using 100%"), 10000)
             zoom = 1.0
         self.zoom_controller.set_zoom(zoom)

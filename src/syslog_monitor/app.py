@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from dataclasses import replace
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -11,7 +12,8 @@ from PySide6.QtCore import QLockFile, QLocale, QSettings
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from syslog_monitor import APP_DISPLAY_NAME, __version__
-from syslog_monitor.config import default_config_dir, load_settings, save_settings
+from syslog_monitor.config import Settings, default_config_dir, load_settings, save_settings
+from syslog_monitor.i18n import detect_language, set_language
 from syslog_monitor.mcp_server import McpService
 from syslog_monitor.mcp_tools import LogTools
 from syslog_monitor.service import CaptureService
@@ -76,7 +78,10 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(app: QApplication, config_dir: Path) -> int:
     settings_path = config_dir / "settings.json"
-    settings = load_settings(settings_path)
+    settings = load_startup_settings(settings_path)
+    set_language(settings.language)
+    QLocale.setDefault(QLocale(QLocale.Language.German if settings.language == "de"
+                               else QLocale.Language.English))
     if not settings_path.exists():
         save_settings(settings_path, settings)
 
@@ -108,6 +113,13 @@ def _run(app: QApplication, config_dir: Path) -> int:
         window.shutdown()
         mcp.stop()
         service.shutdown()
+
+
+def load_startup_settings(settings_path: Path) -> Settings:
+    """Detect the system language only before the initial settings file is created."""
+    first_start = not settings_path.exists()
+    settings = load_settings(settings_path)
+    return replace(settings, language=detect_language()) if first_start else settings
 
 
 def receiver_status(snap: StatsSnapshot) -> dict[str, object]:

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from syslog_monitor.events import FACILITY_NAMES, SEVERITY_NAMES
+from syslog_monitor.i18n import tr
 from syslog_monitor.query import TEXT_MODE_WORDS, EventFilter, FilterRule
 from syslog_monitor.ui.flow_layout import FlowLayout
 
@@ -36,11 +37,11 @@ class RuleRow(QWidget):
         )
         self.edit_button = QToolButton(text="✎")
         self.edit_button.setFixedSize(20, 20)
-        self.edit_button.setToolTip("Edit filter rule")
+        self.edit_button.setToolTip(tr("Edit filter rule"))
         self.remove_button = QToolButton(text="×")
         self.remove_button.setFixedSize(20, 20)
-        self.remove_button.setToolTip("Remove filter rule")
-        self.remove_button.setAccessibleName("Remove filter rule")
+        self.remove_button.setToolTip(tr("Remove filter rule"))
+        self.remove_button.setAccessibleName(tr("Remove filter rule"))
         self.chip = QWidget(self)
         self.chip.setObjectName("filter_chip")
         self.chip.setStyleSheet(
@@ -53,18 +54,18 @@ class RuleRow(QWidget):
         chip_layout.addWidget(self.edit_button)
         chip_layout.addWidget(self.remove_button)
         self.field = QComboBox()
-        for label, value in (("Text (all fields)", "text"), ("Message", "message"),
-                             ("Sender/IP or host", "sender"), ("Host", "hostname"),
-                             ("Application", "app")):
+        for label, value in ((tr("Text (all fields)"), "text"), (tr("Message"), "message"),
+                             (tr("Sender/IP or host"), "sender"), (tr("Host"), "hostname"),
+                             (tr("Application"), "app")):
             self.field.addItem(label, value)
         self.operator = QComboBox()
-        for label, value in (("contains", "contains"), ("does not contain", "not_contains"),
-                             ("equals", "equals"), ("does not equal", "not_equals")):
+        for label, value in ((tr("contains"), "contains"), (tr("does not contain"), "not_contains"),
+                             (tr("equals"), "equals"), (tr("does not equal"), "not_equals")):
             self.operator.addItem(label, value)
-        self.required = QCheckBox("Always AND")
-        self.required.setToolTip("This rule must always match, even when rules are combined with OR.")
+        self.required = QCheckBox(tr("Always AND"))
+        self.required.setToolTip(tr("This rule must always match, even when rules are combined with OR."))
         self.required.setChecked(rule.required)
-        self.value = QLineEdit(placeholderText="Filter value …", clearButtonEnabled=True)
+        self.value = QLineEdit(placeholderText=tr("Filter value …"), clearButtonEnabled=True)
         self.editor = QWidget()
         editor_layout = QHBoxLayout(self.editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
@@ -97,8 +98,8 @@ class RuleRow(QWidget):
         try:
             if self.field.currentData() == "text":
                 if self.operator.findData("words") < 0:
-                    self.operator.addItem("contains all words", "words")
-                    self.operator.addItem("does not contain all words", "not_words")
+                    self.operator.addItem(tr("contains all words"), "words")
+                    self.operator.addItem(tr("does not contain all words"), "not_words")
             else:
                 for value in ("not_words", "words"):
                     index = self.operator.findData(value)
@@ -117,7 +118,7 @@ class RuleRow(QWidget):
 
     def _update_summary(self) -> None:
         value = self.value.text().strip() or "…"
-        required = " · Always AND" if self.required.isChecked() else ""
+        required = f" · {tr('Always AND')}" if self.required.isChecked() else ""
         text = f"{self.field.currentText()} {self.operator.currentText()}: {value}{required}"
         self.summary_button.setText(text)
         self.summary_button.setToolTip(text)
@@ -135,22 +136,22 @@ class FilterBar(QWidget):
         self.severity_button.setMenu(self._build_severity_menu())
 
         self.facility = QComboBox()
-        self.facility.addItem("All facilities", None)
+        self.facility.addItem(tr("All facilities"), None)
         for code, name in enumerate(FACILITY_NAMES):
             self.facility.addItem(f"{name} ({code})", code)
 
-        self.reset_button = QPushButton("Reset filters")
+        self.reset_button = QPushButton(tr("Reset filters"))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         self.rule_rows: list[RuleRow] = []
         self._flow_layout = FlowLayout()
         outer.addLayout(self._flow_layout)
-        self.add_rule_button = QPushButton("+ Filter rule")
-        self.add_rule_button.setToolTip("Add a filter rule. Empty rules are inactive.")
+        self.add_rule_button = QPushButton(tr("+ Filter rule"))
+        self.add_rule_button.setToolTip(tr("Add a filter rule. Empty rules are inactive."))
         self.rules_match = QComboBox()
-        self.rules_match.addItem("All rules (AND)", "all")
-        self.rules_match.addItem("Any rule (OR)", "any")
+        self.rules_match.addItem(tr("All rules (AND)"), "all")
+        self.rules_match.addItem(tr("Any rule (OR)"), "any")
         dropdown_height = max(self.facility.sizeHint().height(), self.rules_match.sizeHint().height())
         for widget in (self.severity_button, self.facility, self.rules_match):
             widget.setFixedHeight(dropdown_height)
@@ -195,15 +196,15 @@ class FilterBar(QWidget):
         if self._editors.currentWidget() is row.editor:
             self._editors.setCurrentWidget(self._empty_editor)
             self._editors.hide()
-            row.edit_button.setToolTip("Edit filter rule")
+            row.edit_button.setToolTip(tr("Edit filter rule"))
             return
         for current in self.rule_rows:
             if self._editors.currentWidget() is current.editor:
-                current.edit_button.setToolTip("Edit filter rule")
+                current.edit_button.setToolTip(tr("Edit filter rule"))
                 break
         self._editors.setCurrentWidget(row.editor)
         self._editors.show()
-        row.edit_button.setToolTip("Hide filter options")
+        row.edit_button.setToolTip(tr("Hide filter options"))
 
     def _rebuild_flow(self) -> None:
         while self._flow_layout.count():
@@ -214,13 +215,13 @@ class FilterBar(QWidget):
 
     def _build_severity_menu(self) -> QMenu:
         menu = QMenu(self)
-        presets = (("All", ALL_SEVERITIES), ("Errors only (Emergency–Error)", (0, 1, 2, 3)),
-                   ("Warning and above", (0, 1, 2, 3, 4)))
+        presets = ((tr("All"), ALL_SEVERITIES), (tr("Errors only (Emergency–Error)"), (0, 1, 2, 3)),
+                   (tr("Warning and above"), (0, 1, 2, 3, 4)))
         for label, values in presets:
             menu.addAction(label, lambda v=values: self.set_severities(set(v)))
         menu.addSeparator()
         for sev in ALL_SEVERITIES:
-            label = "Unknown (no PRI)" if sev is None else f"{sev} {SEVERITY_NAMES[sev]}"
+            label = tr("Unknown (no PRI)") if sev is None else f"{sev} {tr(SEVERITY_NAMES[sev])}"
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(True)
@@ -245,15 +246,15 @@ class FilterBar(QWidget):
     def _update_severity_label(self) -> None:
         selected = self.selected_severities()
         if len(selected) == len(ALL_SEVERITIES):
-            text = "Severity: all"
+            text = tr("Severity: all")
         elif not selected:
-            text = "Severity: none"
+            text = tr("Severity: none")
         elif selected == {0, 1, 2, 3}:
-            text = "Severity: errors"
+            text = tr("Severity: errors")
         elif selected == {0, 1, 2, 3, 4}:
-            text = "Severity: ≥ warning"
+            text = tr("Severity: ≥ warning")
         else:
-            text = f"Severity: {len(selected)} selected"
+            text = tr("Severity: {count} selected", count=len(selected))
         self.severity_button.setText(text)
 
     def current_filter(self) -> EventFilter:

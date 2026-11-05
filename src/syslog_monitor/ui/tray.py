@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from syslog_monitor import APP_DISPLAY_NAME
+from syslog_monitor.i18n import tr
 from syslog_monitor.stats import StatsSnapshot
 from syslog_monitor.ui.formatting import format_count
 from syslog_monitor.ui.icons import app_icon
@@ -21,9 +22,9 @@ class TrayController(QObject):
         self._notified = False
         self.icon = QSystemTrayIcon(app_icon("stopped"), parent)
         menu = QMenu(parent)
-        menu.addAction("Open", self.open_requested.emit)
+        menu.addAction(tr("Open"), self.open_requested.emit)
         menu.addSeparator()
-        menu.addAction("Quit", self.quit_requested.emit)
+        menu.addAction(tr("Quit"), self.quit_requested.emit)
         self.icon.setContextMenu(menu)
         self.icon.activated.connect(self._on_activated)
         self.icon.messageClicked.connect(self.open_requested.emit)
@@ -37,17 +38,17 @@ class TrayController(QObject):
         if snap.listener_state != self._state:
             self._state = snap.listener_state
             self.icon.setIcon(app_icon(snap.listener_state))
-        state = {"running": "receiving", "stopped": "stopped", "error": "ERROR"}[snap.listener_state]
+        state = tr({"running": "receiving", "stopped": "stopped", "error": "ERROR"}[snap.listener_state])
         self.icon.setToolTip(
             f"{APP_DISPLAY_NAME} – {state} {snap.listener_display_address}\n"
-            f"Stored: {format_count(snap.persisted)}")
+            f"{tr('Stored: {count}', count=format_count(snap.persisted))}")
 
     def notify_hidden_once(self) -> None:
         if not self._notified:
             self._notified = True
-            self.icon.showMessage(f"{APP_DISPLAY_NAME} is still running",
-                                  "Receiving and storage continue in the background. "
-                                  "Quit from the tray menu.", QSystemTrayIcon.Information, 4000)
+            self.icon.showMessage(tr("{name} is still running", name=APP_DISPLAY_NAME),
+                                  tr("Receiving and storage continue in the background. "
+                                     "Quit from the tray menu."), QSystemTrayIcon.Information, 4000)
 
     def show_highlight(self, title: str, body: str) -> None:
         self.show_warning(title, body)

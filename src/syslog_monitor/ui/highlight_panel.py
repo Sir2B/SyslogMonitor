@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from syslog_monitor.query import DEFAULT_HIGHLIGHT, HighlightRule, Histogram, active_highlights
+from syslog_monitor.i18n import tr
 from syslog_monitor.ui.flow_layout import FlowLayout
 from syslog_monitor.ui.formatting import format_count
 from syslog_monitor.ui.palette import highlight_text_color
@@ -34,22 +35,22 @@ class HighlightRow(QWidget):
         self.summary_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.summary_button.setCheckable(True)
         self.summary_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.summary_button.setToolTip("Select this highlight for match navigation")
+        self.summary_button.setToolTip(tr("Select this highlight for match navigation"))
         self.edit_button = QToolButton(text="✎")
         self.edit_button.setFixedSize(20, 20)
-        self.edit_button.setToolTip("Edit highlight rule")
-        self.enabled = QCheckBox("Enabled", checked=rule.enabled)
-        self.popup_checkbox = QCheckBox("Popup", checked=rule.popup)
+        self.edit_button.setToolTip(tr("Edit highlight rule"))
+        self.enabled = QCheckBox(tr("Enabled"), checked=rule.enabled)
+        self.popup_checkbox = QCheckBox(tr("Popup"), checked=rule.popup)
         self.value = QLineEdit(rule.text, clearButtonEnabled=True)
-        self.value.setPlaceholderText("Message contains …")
+        self.value.setPlaceholderText(tr("Message contains …"))
         self.value.setToolTip(
-            "Literal substring in the message (ASCII, case-insensitive).\n"
+            tr("Literal substring in the message (ASCII, case-insensitive).\n"
             "Optionally separate multiple strings with ;. Empty rules are inactive.\n"
-            "When several rules match, the highest active rule takes precedence.")
+            "When several rules match, the highest active rule takes precedence."))
         self.color_button = QPushButton()
-        self.color_button.setToolTip("Choose highlight color")
+        self.color_button.setToolTip(tr("Choose highlight color"))
         self.count_label = QLabel("…", textFormat=Qt.PlainText, alignment=Qt.AlignRight | Qt.AlignVCenter)
-        self.count_label.setToolTip("Counting matches…")
+        self.count_label.setToolTip(tr("Counting matches…"))
         self.chip = QWidget(self)
         self.chip.setObjectName("highlight_chip")
         chip_layout = QHBoxLayout(self.chip)
@@ -59,13 +60,13 @@ class HighlightRow(QWidget):
         chip_layout.addWidget(self.count_label)
         chip_layout.addWidget(self.edit_button)
         self.up_button = QToolButton(text="↑")
-        self.up_button.setToolTip("Move up (higher priority)")
+        self.up_button.setToolTip(tr("Move up (higher priority)"))
         self.down_button = QToolButton(text="↓")
-        self.down_button.setToolTip("Move down (lower priority)")
+        self.down_button.setToolTip(tr("Move down (lower priority)"))
         self.remove_button = QToolButton(text="×")
         self.remove_button.setFixedSize(20, 20)
-        self.remove_button.setToolTip("Remove highlight rule")
-        self.remove_button.setAccessibleName("Remove highlight rule")
+        self.remove_button.setToolTip(tr("Remove highlight rule"))
+        self.remove_button.setAccessibleName(tr("Remove highlight rule"))
         chip_layout.addWidget(self.remove_button)
         self.editor = QWidget()
         editor_layout = QHBoxLayout(self.editor)
@@ -109,7 +110,7 @@ class HighlightRow(QWidget):
         self._refresh_summary()
 
     def _refresh_summary(self) -> None:
-        text = self.value.text().strip() or "Empty highlight"
+        text = self.value.text().strip() or tr("Empty highlight")
         self.summary_button.setText(text)
         border = "2px" if self._selected else "1px"
         style = "solid" if self.enabled.isChecked() else "dashed"
@@ -123,7 +124,7 @@ class HighlightRow(QWidget):
         self.changed.emit()
 
     def _choose_color(self) -> None:
-        color = QColorDialog.getColor(QColor(self._color), self, "Highlight color")
+        color = QColorDialog.getColor(QColor(self._color), self, tr("Highlight color"))
         if color.isValid():
             self.set_color(color)
 
@@ -145,16 +146,16 @@ class HighlightPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(3)
         controls = QHBoxLayout()
-        self.add_rule_button = QPushButton("+ Highlight")
-        self.add_rule_button.setToolTip("Add another highlight rule with its own color")
+        self.add_rule_button = QPushButton(tr("+ Highlight"))
+        self.add_rule_button.setToolTip(tr("Add another highlight rule with its own color"))
         self.summary = QLabel(textFormat=Qt.PlainText)
         self.previous_button = QToolButton(text="▲")
-        self.previous_button.setToolTip("Find previous (newer) match for the selected highlight")
+        self.previous_button.setToolTip(tr("Find previous (newer) match for the selected highlight"))
         self.next_button = QToolButton(text="▼")
-        self.next_button.setToolTip("Find next (older) match for the selected highlight")
+        self.next_button.setToolTip(tr("Find next (older) match for the selected highlight"))
         self.previous_button.setEnabled(False)
         self.next_button.setEnabled(False)
-        self.setToolTip("The highest-priority matching rule determines the color.")
+        self.setToolTip(tr("The highest-priority matching rule determines the color."))
         self._flow_layout = FlowLayout()
         outer.addLayout(self._flow_layout)
         self._empty_editor = QWidget()
@@ -183,8 +184,8 @@ class HighlightPanel(QWidget):
         for row in self.rule_rows:
             active = bool(active_highlights((row.rule(),)))
             row.count_label.setText("…" if active else "–")
-            row.count_label.setToolTip(
-                "Updating match count…" if active else "Rule is disabled or empty.")
+            row.count_label.setToolTip(tr("Updating match count…") if active
+                                        else tr("Rule is disabled or empty."))
 
     def set_counts(self, histogram: Histogram) -> None:
         if histogram.highlight_rules != self.active_rules():
@@ -193,14 +194,15 @@ class HighlightPanel(QWidget):
         for row in self.rule_rows:
             if not active_highlights((row.rule(),)):
                 row.count_label.setText("–")
-                row.count_label.setToolTip("Rule is disabled or empty.")
+                row.count_label.setToolTip(tr("Rule is disabled or empty."))
                 continue
             count = sum(bucket[index] for bucket in histogram.highlight_counts)
             row.count_label.setText(format_count(count))
             row.count_label.setToolTip(
-                f"{format_count(count)} matches in the active filters and time range.\n"
+                tr("{count} matches in the active filters and time range.\n"
                 "Counts all stored messages in the range, not just the loaded rows.\n"
-                "When several rules match, only the highest active rule is counted.")
+                "When several rules match, only the highest active rule is counted.",
+                   count=format_count(count)))
             index += 1
 
     def add_rule(self, rule: HighlightRule | None = None) -> HighlightRow:
@@ -247,16 +249,16 @@ class HighlightPanel(QWidget):
         if self._editors.currentWidget() is row.editor:
             self._editors.setCurrentWidget(self._empty_editor)
             self._editors.hide()
-            row.edit_button.setToolTip("Edit highlight rule")
+            row.edit_button.setToolTip(tr("Edit highlight rule"))
             return
         for current in self.rule_rows:
             if self._editors.currentWidget() is current.editor:
-                current.edit_button.setToolTip("Edit highlight rule")
+                current.edit_button.setToolTip(tr("Edit highlight rule"))
                 break
         self.select_rule(row)
         self._editors.setCurrentWidget(row.editor)
         self._editors.show()
-        row.edit_button.setToolTip("Hide highlight options")
+        row.edit_button.setToolTip(tr("Hide highlight options"))
 
     def select_rule(self, row: HighlightRow | None) -> None:
         self.selected_row = row

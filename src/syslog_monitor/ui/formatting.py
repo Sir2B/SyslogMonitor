@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from syslog_monitor.events import SyslogEvent, facility_name, severity_name
+from syslog_monitor.i18n import tr
 
 ISSUE_LABELS = {
     "no_pri": "No PRI header (severity unknown)",
@@ -36,26 +37,26 @@ def format_count(n: int) -> str:
 
 
 def format_event_details(ev: SyslogEvent) -> str:
-    sev = "Unknown" if ev.severity is None else f"{severity_name(ev.severity)} ({ev.severity})"
+    sev = tr("Unknown") if ev.severity is None else f"{tr(severity_name(ev.severity))} ({ev.severity})"
     fac = "-" if ev.facility is None else f"{facility_name(ev.facility)} ({ev.facility})"
     if ev.reported_time_utc is not None:
         reported = f"{ev.reported_time_text}  ->  {format_ts(ev.reported_time_utc)} (local)"
     else:
         reported = ev.reported_time_text or "-"
-    issues = ", ".join(ISSUE_LABELS.get(i, i) for i in ev.issues) or "none"
+    issues = ", ".join(tr(ISSUE_LABELS.get(i, i)) for i in ev.issues) or tr("none")
     lines = [
-        f"Received:       {format_ts(ev.received_at)} (local)",
-        f"Sender time:    {reported}",
-        f"Source:         {ev.source_ip}:{ev.source_port}",
-        f"Reported host:  {ev.hostname or '-'}",
-        f"Severity:       {sev}",
-        f"Facility:       {fac}",
-        f"Application:    {ev.app_name or '-'}   PID: {ev.procid or '-'}   MsgID: {ev.msgid or '-'}",
-        f"Format:         {ev.format}",
-        f"Parser notes:    {issues}",
+        f"{tr('Received')}:       {format_ts(ev.received_at)} ({tr('local')})",
+        f"{tr('Sender time')}:    {reported}",
+        f"{tr('Source')}:         {ev.source_ip}:{ev.source_port}",
+        f"{tr('Reported host')}:  {ev.hostname or '-'}",
+        f"{tr('Severity')}:       {sev}",
+        f"{tr('Facility')}:       {fac}",
+        f"{tr('Application')}:    {ev.app_name or '-'}   PID: {ev.procid or '-'}   MsgID: {ev.msgid or '-'}",
+        f"{tr('Format')}:         {ev.format}",
+        f"{tr('Parser notes')}:    {issues}",
     ]
     if ev.structured_data:
-        lines.append(f"Structured Data: {ev.structured_data}")
-    lines += ["", "Message:", ev.message, "", f"Raw data ({len(ev.raw)} bytes):",
+        lines.append(f"{tr('Structured Data')}: {ev.structured_data}")
+    lines += ["", f"{tr('Message')}:", ev.message, "", f"{tr('Raw data ({count} bytes)', count=len(ev.raw))}:",
               ev.raw.decode("utf-8", errors="backslashreplace")]
     return "\n".join(lines)

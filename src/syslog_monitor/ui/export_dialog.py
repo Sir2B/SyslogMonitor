@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from syslog_monitor.export import (
     DEFAULT_EXPORT_COLUMNS, EXPORT_COLUMNS, ExportCancelled, ExportOptions, ExportResult, export_events,
 )
+from syslog_monitor.i18n import tr
 from syslog_monitor.query import EventFilter
 from syslog_monitor.ui.palette import status_color
 
@@ -57,52 +58,53 @@ class ExportDialog(QDialog):
     def __init__(self, db_path: Path, boot_marker: str, filters: EventFilter,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Export messages")
+        self.setWindowTitle(tr("Export messages"))
         self._db_path = db_path
         self._boot_marker = boot_marker
         self._filters = filters
         self.worker: ExportThread | None = None
         self._closing = False
         self.period = QComboBox()
-        for label, value in (("Since last reboot (per sender)", "boot"),
-                             ("Last 24 hours", "24h"), ("From / To", "custom")):
+        for label, value in ((tr("Since last reboot (per sender)"), "boot"),
+                             (tr("Last 24 hours"), "24h"), (tr("From / To"), "custom")):
             self.period.addItem(label, value)
         self.format = QComboBox()
-        self.format.addItem("CSV (Excel / spreadsheets)", "csv")
-        self.format.addItem("JSONL (lossless, one JSON object per line)", "jsonl")
+        self.format.addItem(tr("CSV (Excel / spreadsheets)"), "csv")
+        self.format.addItem(tr("JSONL (lossless, one JSON object per line)"), "jsonl")
         now = QDateTime.currentDateTime()
         self.start = QDateTimeEdit(now.addDays(-1), calendarPopup=True, displayFormat=DATETIME_FORMAT)
         self.end = QDateTimeEdit(now, calendarPopup=True, displayFormat=DATETIME_FORMAT)
-        self.use_filters = QCheckBox("Apply current severity, facility and filter rules")
-        self.use_filters.setToolTip("The export period replaces the main window's time range and zoom.\n"
-                                   "Search navigation and highlights do not restrict the export.")
+        self.use_filters = QCheckBox(tr("Apply current severity, facility and filter rules"))
+        self.use_filters.setToolTip(tr("The export period replaces the main window's time range and zoom.\n"
+                                      "Search navigation and highlights do not restrict the export."))
         form = QFormLayout()
-        form.addRow("Period:", self.period)
-        form.addRow("From (inclusive):", self.start)
-        form.addRow("To (includes this second):", self.end)
-        form.addRow("Format:", self.format)
+        form.addRow(tr("Period:"), self.period)
+        form.addRow(tr("From (inclusive):"), self.start)
+        form.addRow(tr("To (includes this second):"), self.end)
+        form.addRow(tr("Format:"), self.format)
         form.addRow("", self.use_filters)
-        self.columns_group = QGroupBox("Columns to export")
+        self.columns_group = QGroupBox(tr("Columns to export"))
         columns_layout = QGridLayout(self.columns_group)
         self.column_checks: dict[str, QCheckBox] = {}
         for index, column in enumerate(EXPORT_COLUMNS):
-            check = QCheckBox(column if column != "raw_base64" else "raw_base64 (original packet)")
+            check = QCheckBox(tr(column) if column != "raw_base64"
+                              else tr("raw_base64 (original packet)"))
             check.setChecked(column in DEFAULT_EXPORT_COLUMNS)
             self.column_checks[column] = check
             columns_layout.addWidget(check, index // 3, index % 3)
         self.column_checks["raw_base64"].setToolTip(
-            "Include the original packet bytes encoded as Base64. Off by default.")
+            tr("Include the original packet bytes encoded as Base64. Off by default."))
         hint = QLabel(
-            "Exports all stored messages in the chosen period, not just loaded rows.\n"
+            tr("Exports all stored messages in the chosen period, not just loaded rows.\n"
             "Reboot means the last configured boot marker per sender, not this PC's restart. "
             "Senders without a stored boot marker are excluded and reported after export.\n"
             "Times use the reception time. Dates are entered in local time; exported timestamps are UTC.\n"
-            "CSV protects spreadsheet formula-like text with an apostrophe. JSONL preserves text exactly.")
+            "CSV protects spreadsheet formula-like text with an apostrophe. JSONL preserves text exactly."))
         hint.setWordWrap(True)
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        self.export_button = self.buttons.addButton("Export…", QDialogButtonBox.ActionRole)
+        self.export_button = self.buttons.addButton(tr("Export…"), QDialogButtonBox.ActionRole)
         self.export_button.clicked.connect(self.start_export)
         self.buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
@@ -138,12 +140,12 @@ class ExportDialog(QDialog):
             return
         extension = options.format
         destination, _ = QFileDialog.getSaveFileName(
-            self, "Export messages", f"syslog-export.{extension}",
+            self, tr("Export messages"), f"syslog-export.{extension}",
             f"{extension.upper()} files (*.{extension})")
         if not destination:
             return
         self.status.setStyleSheet("")
-        self.status.setText("Exporting…")
+        self.status.setText(tr("Exporting…"))
         self._set_running(True)
         self.worker = ExportThread(self._db_path, Path(destination), options, self)
         self.worker.progress.connect(self._progress)
@@ -161,11 +163,11 @@ class ExportDialog(QDialog):
 
     def _progress(self, count: int) -> None:
         if not self._closing:
-            self.status.setText(f"Exporting… {count:,} messages written")
+            self.status.setText(tr("Exporting… {count} messages written", count=f"{count:,}"))
 
     def _show_error(self, message: str) -> None:
         self.status.setStyleSheet(f"color: {status_color('#b00020')}")
-        self.status.setText(f"Export failed: {message}")
+        self.status.setText(tr("Export failed: {message}", message=message))
 
     def _finished(self) -> None:
         worker = self.worker
@@ -177,11 +179,13 @@ class ExportDialog(QDialog):
         elif worker.result is not None:
             result = worker.result
             self.status.setText(
-                f"Exported {result.rows:,} messages to {worker.destination}."
-                + (f"\nExcluded {result.skipped_devices} sender(s) without a stored boot marker."
+                tr("Exported {count} messages to {path}.",
+                   count=f"{result.rows:,}", path=worker.destination)
+                + (tr("\nExcluded {count} sender(s) without a stored boot marker.",
+                      count=result.skipped_devices)
                    if result.skipped_devices else ""))
         else:
-            self.status.setText("Export cancelled. The destination was not changed.")
+            self.status.setText(tr("Export cancelled. The destination was not changed."))
         self.worker = None
         worker.deleteLater()
         if self._closing:
@@ -190,7 +194,7 @@ class ExportDialog(QDialog):
     def reject(self) -> None:
         if self.worker is not None:
             self._closing = True
-            self.status.setText("Cancelling export…")
+            self.status.setText(tr("Cancelling export…"))
             self.worker.cancel.set()
         else:
             super().reject()

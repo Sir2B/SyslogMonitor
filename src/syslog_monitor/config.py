@@ -47,6 +47,7 @@ class Settings:
     tls_key_file: str = ""  # empty: key is in the certificate file
     tls_ca_file: str = ""  # set: clients must present a certificate signed by this CA
     theme: str = "system"
+    language: str = "en"
 
     def resolved_data_dir(self, config_dir: Path) -> Path:
         return Path(self.data_dir) if self.data_dir else config_dir / "data"
@@ -106,6 +107,8 @@ class Settings:
             errors.append("Boot marker must be text.")
         if self.theme not in ("system", "light", "dark"):
             errors.append("Theme must be system, light or dark.")
+        if self.language not in ("en", "de"):
+            errors.append("Language must be en or de.")
         return errors
 
 
