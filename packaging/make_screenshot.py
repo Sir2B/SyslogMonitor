@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from PySide6.QtCore import QDeadlineTimer, QLocale, QPoint, QSettings  # noqa: E402
 from PySide6.QtGui import QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+from shiboken6 import delete  # noqa: E402
 
 from syslog_monitor.config import Settings  # noqa: E402
 from syslog_monitor.firewall import FirewallCheck, Level  # noqa: E402
@@ -208,6 +209,7 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
             window.close()
             window.shutdown()
             service.shutdown()
+            delete(window)
     return output
 
 

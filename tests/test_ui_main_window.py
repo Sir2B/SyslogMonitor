@@ -75,6 +75,7 @@ def test_top_rules_scroll_without_shrinking_message_list(qtbot, window):
         # The panel height is updated by a timer before its parent layout is recalculated.
         qtbot.waitUntil(lambda: not window._rules_height_timer.isActive())
         window.centralWidget().layout().activate()
+        qtbot.wait(100)
 
     window.resize(1300, 750)
     qtbot.wait(20)
@@ -108,10 +109,14 @@ def test_top_rules_scroll_without_shrinking_message_list(qtbot, window):
 
 def test_rules_height_grows_to_three_rows_then_scrolls_and_shrinks(qtbot, window):
     window.resize(2600, 900)
-    qtbot.wait(50)
+    qtbot.waitUntil(lambda: not window._rules_height_timer.isActive())
+    window.centralWidget().layout().activate()
+    row_height = max(
+        panel._flow_layout.itemAt(index).sizeHint().height()
+        for panel in (window.filter_bar, window.highlights)
+        for index in range(panel._flow_layout.count()))
+    qtbot.waitUntil(lambda: window.rules_splitter.height() <= row_height + 6)
     initial_height = window.rules_splitter.height()
-    row_height = max(window.highlights.rule_rows[0].sizeHint().height(),
-                     window.filter_bar.add_rule_button.sizeHint().height())
     assert initial_height <= row_height + 6
     for index in range(30):
         window.highlights.add_rule(HighlightRule(f"Highlight example {index}"))
