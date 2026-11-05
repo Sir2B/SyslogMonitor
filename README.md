@@ -38,6 +38,9 @@ display a warning.
 The first launch detects German from your system language; otherwise it uses English.
 You can change it in **Settings > Language** (restart required).
 
+Hover over a highlight's count to see its average matches per hour and standard
+deviation within the displayed timeline and active filters.
+
 ## Everyday controls
 
 | Control | What it does |

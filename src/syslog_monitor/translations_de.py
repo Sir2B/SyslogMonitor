@@ -1,6 +1,8 @@
 """German UI translations."""
 
 GERMAN_TRANSLATIONS = {
+    "Average: {mean:.2f} matches/hour; standard deviation: {deviation:.2f} matches/hour.\nHourly intervals start at the displayed minimap range. Empty hours count; partial hours are time-weighted. This is variation, not a confidence interval.":
+        "Durchschnitt: {mean:.2f} Treffer/Stunde; Standardabweichung: {deviation:.2f} Treffer/Stunde.\nStundenintervalle beginnen am angezeigten Minikartenzeitraum. Leere Stunden zählen; angebrochene Stunden werden zeitlich gewichtet. Dies ist eine Streuung, kein Konfidenzintervall.",
     "0.0.0.0 = all network interfaces; 127.0.0.1 = local only":
         "0.0.0.0 = alle Netzwerkschnittstellen; 127.0.0.1 = nur lokal",
     "A changed data directory takes effect after restarting the application.":

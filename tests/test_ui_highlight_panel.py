@@ -113,6 +113,26 @@ def test_counts_follow_rule_order_including_duplicates_and_inactive_rows(qtbot):
     assert panel.rule_rows[1].count_label.text() == "…"
 
 
+@pytest.mark.parametrize(("language", "expected"), [
+    ("en", "Average: 2.00 matches/hour; standard deviation: 2.00 matches/hour."),
+    ("de", "Durchschnitt: 2.00 Treffer/Stunde; Standardabweichung: 2.00 Treffer/Stunde."),
+])
+def test_hourly_statistics_are_shown_in_tooltip(qtbot, language, expected):
+    from syslog_monitor.i18n import set_language
+
+    set_language(language)
+    try:
+        panel = HighlightPanel()
+        qtbot.addWidget(panel)
+        hist = Histogram(0, 7_200_000, highlight_rules=panel.active_rules(),
+                         highlight_counts=[[4]], highlight_hourly_counts=[{1: 4}])
+        panel.set_counts(hist)
+        assert panel.rule_rows[0].count_label.text() == "4"
+        assert expected in panel.rule_rows[0].count_label.toolTip()
+    finally:
+        set_language("en")
+
+
 @pytest.mark.parametrize("state", [None, {}, [None], [{"color": "red"}],
                                       [{"text": "x", "enabled": "false"}]])
 def test_bad_state_does_not_destroy_existing_rules(qtbot, state):

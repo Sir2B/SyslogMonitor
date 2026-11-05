@@ -482,6 +482,17 @@ src/syslog_monitor/
 Core logic (`parser`, `storage`, `query`, `writer`, `service`) does not depend on Qt and
 can be tested without the GUI. The GUI reads through `QueryRunner` in a dedicated thread.
 
+## Highlight frequency statistics
+
+Hover over a highlight count for its mean rate and population standard deviation
+in matches/hour. The calculation uses exact hourly counts, not minimap pixels.
+Intervals start at the displayed minimap range; this range may be narrower than the
+chosen time preset because the minimap fits the available data. Active filters and
+highlight priority apply. Empty hours are included. A final partial hour is normalized
+to a per-hour rate and weighted by its duration. For a range shorter than one hour,
+there is one rate sample and the deviation is zero, not evidence of regular behavior.
+The deviation describes variation between intervals; it is not a confidence interval.
+
 ## Tests
 
 CI runs the test suite on both supported Python versions before building packages;

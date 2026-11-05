@@ -147,6 +147,7 @@ class Histogram:
     highlights: list[int] = field(default_factory=list)
     highlight_rules: tuple[HighlightRule, ...] = ()
     highlight_counts: list[list[int]] = field(default_factory=list)  # [bucket][rule], first match wins
+    highlight_hourly_counts: list[dict[int, int]] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -154,6 +155,15 @@ class Histogram:
 
     def class_total(self, cls: SeverityClass) -> int:
         return sum(bucket[cls] for bucket in self.counts)
+
+    def highlight_hourly_statistics(self, rule_index: int) -> tuple[float, float]:
+        """Mean and time-weighted population deviation of hourly rates, including empty hours."""
+        hours = max(1, self.end_ms - self.start_ms) / 3_600_000
+        counts = self.highlight_hourly_counts[rule_index]
+        mean = sum(counts.values()) / hours
+        second_moment = sum(
+            count * count / min(1.0, hours - hour) for hour, count in counts.items()) / hours
+        return mean, max(0.0, second_moment - mean * mean) ** 0.5
 
 
 class SenderSummary(NamedTuple):
@@ -353,23 +363,28 @@ class QueryRunner:
             cases.append(f"WHEN {expr} THEN {i}")
             highlight_params.extend(values)
         highlight_expr = "CASE " + " ".join(cases) + " ELSE -1 END" if cases else "-1"
+        hour_expr = "(received_at - ?) / 3600000" if rules else "0"
         sql = (
             "SELECT MIN(?, (received_at - ?) * ? / ?) AS bucket, "
             "CASE WHEN severity IS NULL THEN 4 WHEN severity <= 3 THEN 0 "
             "WHEN severity = 4 THEN 1 WHEN severity <= 6 THEN 2 ELSE 3 END AS cls, "
-            f"{highlight_expr} AS highlight_rule, COUNT(*) FROM events WHERE {where} "
-            "GROUP BY bucket, cls, highlight_rule"
+            f"{highlight_expr} AS highlight_rule, COUNT(*), {hour_expr} AS hour "
+            f"FROM events WHERE {where} "
+            "GROUP BY bucket, cls, highlight_rule, hour"
         )
         counts = [[0] * len(SeverityClass) for _ in range(buckets)]
         highlights = [0] * buckets
         highlight_counts = [[0] * len(rules) for _ in range(buckets)]
-        for bucket, cls, rule_index, count in self._conn.execute(
-                sql, [buckets - 1, start_ms, buckets, span, *highlight_params, *params]):
+        hourly_counts: list[dict[int, int]] = [{} for _ in rules]
+        for bucket, cls, rule_index, count, hour in self._conn.execute(
+                sql, [buckets - 1, start_ms, buckets, span, *highlight_params,
+                      *([start_ms] if rules else []), *params]):
             counts[bucket][cls] += count
             if rule_index >= 0:
                 highlights[bucket] += count
                 highlight_counts[bucket][rule_index] += count
-        return Histogram(start_ms, end_ms, counts, highlights, rules, highlight_counts)
+                hourly_counts[rule_index][hour] = hourly_counts[rule_index].get(hour, 0) + count
+        return Histogram(start_ms, end_ms, counts, highlights, rules, highlight_counts, hourly_counts)
 
     def max_id(self) -> int:
         return self._conn.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]

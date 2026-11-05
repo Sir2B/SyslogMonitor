@@ -1,3 +1,5 @@
+import pytest
+
 from conftest import BASE_MS, make_event
 
 from syslog_monitor.events import SeverityClass
@@ -92,6 +94,39 @@ def test_highlight_histogram_preserves_counts_and_filters(store):
                        "unrelated; %_ ;initializing system").highlights == [1, 1, 1, 1]
     assert q.histogram(EventFilter(), BASE_MS, BASE_MS + 4, 4, " ; ;").highlights == [0] * 4
     q.close()
+
+
+def test_highlight_hourly_statistics_include_empty_hours_and_ignore_minimap_resolution(store):
+    hour = 3_600_000
+    q = fill(store, [make_event(hour + i, message="match", severity=3) for i in range(4)]
+             + [make_event(2 * hour, message="match", severity=3)])
+    try:
+        for buckets in (1, 7, 100):
+            hist = q.histogram(EventFilter(), BASE_MS, BASE_MS + 2 * hour, buckets,
+                               (HighlightRule("match"), HighlightRule("match"), HighlightRule("absent")))
+            assert hist.total == 4  # End boundary is exclusive.
+            assert hist.highlight_hourly_counts == [{1: 4}, {}, {}]
+            assert hist.highlight_hourly_statistics(0) == pytest.approx((2.0, 2.0))
+            assert hist.highlight_hourly_statistics(1) == (0.0, 0.0)
+            assert hist.highlight_hourly_statistics(2) == (0.0, 0.0)
+        filtered = q.histogram(EventFilter(severities=frozenset({7})), BASE_MS,
+                               BASE_MS + 2 * hour, 2, "match")
+        assert filtered.highlight_hourly_statistics(0) == (0.0, 0.0)
+    finally:
+        q.close()
+
+
+def test_highlight_hourly_statistics_weight_partial_hours(store):
+    hour = 3_600_000
+    q = fill(store, [make_event(0, message="match"), make_event(1, message="match"),
+                     make_event(hour, message="match")])
+    try:
+        hist = q.histogram(EventFilter(), BASE_MS, BASE_MS + hour + hour // 2, 3, "match")
+        assert hist.highlight_hourly_statistics(0) == pytest.approx((2.0, 0.0))
+        short = q.histogram(EventFilter(), BASE_MS, BASE_MS + hour // 2, 1, "match")
+        assert short.highlight_hourly_statistics(0) == pytest.approx((4.0, 0.0))
+    finally:
+        q.close()
 
 
 def test_parse_and_match_multiple_highlights():

@@ -203,6 +203,13 @@ class HighlightPanel(QWidget):
                 "Counts all stored messages in the range, not just the loaded rows.\n"
                 "When several rules match, only the highest active rule is counted.",
                    count=format_count(count)))
+            if histogram.highlight_hourly_counts:
+                mean, deviation = histogram.highlight_hourly_statistics(index)
+                row.count_label.setToolTip(row.count_label.toolTip() + "\n" + tr(
+                    "Average: {mean:.2f} matches/hour; standard deviation: {deviation:.2f} matches/hour.\n"
+                    "Hourly intervals start at the displayed minimap range. Empty hours count; "
+                    "partial hours are time-weighted. This is variation, not a confidence interval.",
+                    mean=mean, deviation=deviation))
             index += 1
 
     def add_rule(self, rule: HighlightRule | None = None) -> HighlightRow:
