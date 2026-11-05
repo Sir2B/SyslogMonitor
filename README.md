@@ -1,5 +1,10 @@
 # Syslog Monitor
 
+[![Release](https://img.shields.io/github/v/release/Sir2B/SyslogMonitor)](https://github.com/Sir2B/SyslogMonitor/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/Sir2B/SyslogMonitor/ci.yml?branch=main&label=tests)](https://github.com/Sir2B/SyslogMonitor/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Sir2B/SyslogMonitor)](LICENSE)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/Sir2B/SyslogMonitor/releases/latest)
+
 A simple Windows GUI tool for receiving and browsing syslog messages.
 
 Keep an eye on routers, switches, servers, and other devices in one place.
