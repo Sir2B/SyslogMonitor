@@ -28,6 +28,7 @@ from syslog_monitor.query import (
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
 from syslog_monitor.ui.event_model import EventTableModel
+from syslog_monitor.ui.about_dialog import AboutDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
 from syslog_monitor.ui.filter_bar import ALL_SEVERITIES, FilterBar
 from syslog_monitor.ui.firewall_status import Checker, FirewallMonitor
@@ -188,6 +189,8 @@ class MainWindow(QMainWindow):
         self.clear_view_action.triggered.connect(self.clear_view)
         settings_action = QAction("Settings…", self)
         settings_action.triggered.connect(self.open_settings)
+        self.about_action = QAction("About…", self)
+        self.about_action.triggered.connect(self.show_about)
         self.export_action = QAction("Export…", self)
         self.export_action.triggered.connect(self.open_export)
         quit_action = QAction("Quit", self, shortcut=QKeySequence.Quit)
@@ -199,7 +202,7 @@ class MainWindow(QMainWindow):
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
         for item in (self.listen_action, self.live_action, None, refresh_action, None,
-                     self.export_action, settings_action, quit_action):
+                     self.export_action, settings_action, self.about_action, quit_action):
             if item is None:
                 toolbar.addSeparator()
             elif isinstance(item, QAction):
@@ -1168,6 +1171,10 @@ class MainWindow(QMainWindow):
                                     "The new data directory will be used after restarting the application.")
         self._update_status()
         self.check_firewall()
+
+    @Slot()
+    def show_about(self) -> None:
+        AboutDialog(self).exec()
 
     # -------------------------------------------------------------- lifecycle
     def show_and_raise(self) -> None:

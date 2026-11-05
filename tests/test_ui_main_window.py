@@ -631,6 +631,18 @@ def test_zoom_shortcuts_and_factor_are_saved(qtbot, window):
     assert window.zoom_controller.factor == 1.0
 
 
+def test_about_toolbar_action_opens_dialog(qtbot, window, monkeypatch):
+    from syslog_monitor.ui.about_dialog import AboutDialog
+
+    opened = []
+    monkeypatch.setattr(AboutDialog, "exec", lambda self: opened.append(self))
+
+    window.about_action.trigger()
+
+    assert len(opened) == 1
+    assert opened[0].parentWidget() is window
+
+
 def test_stale_query_results_are_discarded(qtbot, tmp_path):
     from syslog_monitor.storage import EventStore
     store = EventStore(tmp_path)
