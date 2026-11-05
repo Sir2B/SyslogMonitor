@@ -7,7 +7,7 @@ import pytest
 from conftest import BASE_MS, make_event
 
 from syslog_monitor.export import (
-    BATCH_SIZE, EXPORT_COLUMNS, ExportCancelled, ExportOptions, export_events,
+    BATCH_SIZE, DEFAULT_EXPORT_COLUMNS, EXPORT_COLUMNS, ExportCancelled, ExportOptions, export_events,
 )
 from syslog_monitor.query import EventFilter, FilterRule
 from syslog_monitor.storage import db_path
@@ -15,6 +15,12 @@ from syslog_monitor.storage import db_path
 
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_default_columns_are_compact_log_fields():
+    assert ExportOptions().columns == (
+        "received_at", "facility", "severity", "hostname", "app_name", "message",
+    )
 
 
 def run_export(store, tmp_path, options=ExportOptions(format="jsonl"), **kwargs):
@@ -41,7 +47,7 @@ def test_last_reboot_per_device_with_exact_tie_boundary(store, tmp_path):
     rows = read_jsonl(output)
     assert [row["message"] for row in rows] == [
         "Initializing system", "second device", "INITIALIZING SYSTEM again", "after boot, same timestamp"]
-    assert {row["source_ip"] for row in rows} == {"192.0.2.1", "192.0.2.2"}
+    assert "source_ip" not in rows[0]
 
 
 def test_boot_lookup_is_independent_of_export_filters(store, tmp_path):
@@ -91,7 +97,7 @@ def test_custom_range_filters_and_jsonl_lossless_fields(store, tmp_path):
     event.structured_data = '[meta note="test"]'
     store.insert([make_event(0), event, make_event(2)])
     options = ExportOptions(
-        period="custom", format="jsonl",
+        period="custom", format="jsonl", columns=EXPORT_COLUMNS,
         filters=EventFilter(start_ms=BASE_MS + 1, end_ms=BASE_MS + 2,
                             rules=(FilterRule("sender", "equals", event.source_ip),)))
     result, output = run_export(store, tmp_path, options)
@@ -111,7 +117,7 @@ def test_custom_range_filters_and_jsonl_lossless_fields(store, tmp_path):
 def test_csv_formula_protection_and_multiline_unicode(store, tmp_path, text):
     message = text + ', "Grüße"\nnext line'
     store.insert([make_event(0, message=message)])
-    result, output = run_export(store, tmp_path, ExportOptions(period="24h"))
+    result, output = run_export(store, tmp_path, ExportOptions(period="24h", columns=EXPORT_COLUMNS))
     assert result.rows == 1
     assert output.read_bytes().startswith(b"\xef\xbb\xbf")
     with output.open(encoding="utf-8-sig", newline="") as stream:
@@ -125,9 +131,75 @@ def test_empty_period_creates_header_or_empty_jsonl(store, tmp_path):
         result, output = run_export(store, tmp_path, ExportOptions(period="24h", format=format))
         assert result.rows == 0
         if format == "csv":
-            assert output.read_text(encoding="utf-8-sig").strip() == ",".join(EXPORT_COLUMNS)
+            assert output.read_text(encoding="utf-8-sig").strip() == ",".join(DEFAULT_EXPORT_COLUMNS)
         else:
             assert output.read_bytes() == b""
+
+
+@pytest.mark.parametrize("format", ["csv", "jsonl"])
+@pytest.mark.parametrize("columns", [DEFAULT_EXPORT_COLUMNS, ("message",),
+                                    ("raw_base64", "reported_time_utc", "message", "received_at"),
+                                    ("hostname", "severity")])
+def test_selected_columns_exact_shape_and_order(store, tmp_path, format, columns):
+    event = make_event(0, message="hello", hostname=None, severity=None)
+    store.insert([event])
+    result, output = run_export(store, tmp_path, ExportOptions(period="24h", format=format, columns=columns))
+    assert result.rows == 1
+    if format == "csv":
+        with output.open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            assert tuple(reader.fieldnames) == columns
+            row = next(reader)
+    else:
+        row = read_jsonl(output)[0]
+    assert tuple(row) == columns
+    if "message" in columns:
+        assert row["message"] == event.message
+    if "raw_base64" in columns:
+        assert base64.b64decode(row["raw_base64"]) == event.raw
+    if "received_at" in columns:
+        assert row["received_at"].endswith(".000+00:00")
+    if "reported_time_utc" in columns:
+        assert row["reported_time_utc"] == ("" if format == "csv" else None)
+
+
+@pytest.mark.parametrize("columns", [(), ("bogus",), ("message", "message"),
+                                    ("message; DROP TABLE events",)])
+def test_invalid_columns_do_not_change_destination(store, tmp_path, columns):
+    output = tmp_path / "export.csv"
+    output.write_text("unchanged")
+    with pytest.raises(ValueError):
+        run_export(store, tmp_path, ExportOptions(period="24h", columns=columns))
+    assert output.read_text() == "unchanged"
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_default_export_does_not_encode_raw(store, tmp_path, monkeypatch):
+    from syslog_monitor import export
+    store.insert([make_event(0)])
+    def unexpected_raw(*args):
+        pytest.fail("Raw data should not be encoded unless selected")
+    monkeypatch.setattr(export.base64, "b64encode", unexpected_raw)
+    result, output = run_export(store, tmp_path, ExportOptions(period="24h", format="jsonl"))
+    assert result.rows == 1
+    assert tuple(read_jsonl(output)[0]) == DEFAULT_EXPORT_COLUMNS
+
+
+@pytest.mark.parametrize("format", ["csv", "jsonl"])
+def test_facility_and_severity_are_readable_names(store, tmp_path, format):
+    from syslog_monitor.events import FACILITY_NAMES, SEVERITY_NAMES
+    store.insert(make_event(index, facility=index, severity=index % 8)
+                 for index in range(len(FACILITY_NAMES)))
+    result, output = run_export(
+        store, tmp_path, ExportOptions(period="24h", format=format, columns=("facility", "severity")))
+    if format == "csv":
+        with output.open(encoding="utf-8-sig", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+    else:
+        rows = read_jsonl(output)
+    assert result.rows == len(FACILITY_NAMES)
+    assert rows == [{"facility": name, "severity": SEVERITY_NAMES[index % 8]}
+                    for index, name in enumerate(FACILITY_NAMES)]
 
 
 def test_cancel_during_stream_preserves_destination_and_cleans_temp(store, tmp_path):

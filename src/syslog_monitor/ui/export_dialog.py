@@ -13,10 +13,12 @@ from PySide6.QtCore import QDateTime, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QLabel, QVBoxLayout, QWidget,
+    QFormLayout, QGridLayout, QGroupBox, QLabel, QVBoxLayout, QWidget,
 )
 
-from syslog_monitor.export import ExportCancelled, ExportOptions, ExportResult, export_events
+from syslog_monitor.export import (
+    DEFAULT_EXPORT_COLUMNS, EXPORT_COLUMNS, ExportCancelled, ExportOptions, ExportResult, export_events,
+)
 from syslog_monitor.query import EventFilter
 from syslog_monitor.ui.palette import status_color
 
@@ -80,6 +82,16 @@ class ExportDialog(QDialog):
         form.addRow("To (includes this second):", self.end)
         form.addRow("Format:", self.format)
         form.addRow("", self.use_filters)
+        self.columns_group = QGroupBox("Columns to export")
+        columns_layout = QGridLayout(self.columns_group)
+        self.column_checks: dict[str, QCheckBox] = {}
+        for index, column in enumerate(EXPORT_COLUMNS):
+            check = QCheckBox(column if column != "raw_base64" else "raw_base64 (original packet)")
+            check.setChecked(column in DEFAULT_EXPORT_COLUMNS)
+            self.column_checks[column] = check
+            columns_layout.addWidget(check, index // 3, index % 3)
+        self.column_checks["raw_base64"].setToolTip(
+            "Include the original packet bytes encoded as Base64. Off by default.")
         hint = QLabel(
             "Exports all stored messages in the chosen period, not just loaded rows.\n"
             "Reboot means the last configured boot marker per sender, not this PC's restart. "
@@ -95,6 +107,7 @@ class ExportDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(self.columns_group)
         layout.addWidget(hint)
         layout.addWidget(self.status)
         layout.addWidget(self.buttons)
@@ -111,7 +124,9 @@ class ExportDialog(QDialog):
         filters = filters.with_time(
             self.start.dateTime().toMSecsSinceEpoch() // 1000 * 1000,
             self.end.dateTime().toMSecsSinceEpoch() // 1000 * 1000 + 1000)
-        options = ExportOptions(self.period.currentData(), self.format.currentData(), filters, self._boot_marker)
+        options = ExportOptions(
+            self.period.currentData(), self.format.currentData(), filters, self._boot_marker,
+            columns=tuple(column for column, check in self.column_checks.items() if check.isChecked()))
         options.validate()
         return options
 
@@ -136,7 +151,7 @@ class ExportDialog(QDialog):
         self.worker.start()
 
     def _set_running(self, running: bool) -> None:
-        for widget in (self.period, self.format, self.use_filters, self.export_button):
+        for widget in (self.period, self.format, self.use_filters, self.columns_group, self.export_button):
             widget.setEnabled(not running)
         if running:
             self.start.setEnabled(False)

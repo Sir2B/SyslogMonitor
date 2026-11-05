@@ -15,11 +15,15 @@ from threading import Event
 from typing import Callable
 
 from syslog_monitor.config import DEFAULT_BOOT_MARKER
+from syslog_monitor.events import facility_name, severity_name
 from syslog_monitor.query import EventFilter, build_where, highlight_sql, parse_highlights
 from syslog_monitor.storage import EVENT_COLUMNS, connect
 
 BATCH_SIZE = 1000
 EXPORT_COLUMNS = ("id", *EVENT_COLUMNS[:-1], "raw_base64")
+DEFAULT_EXPORT_COLUMNS = (
+    "received_at", "facility", "severity", "hostname", "app_name", "message",
+)
 
 
 class ExportCancelled(Exception):
@@ -32,12 +36,19 @@ class ExportOptions:
     format: str = "csv"
     filters: EventFilter = EventFilter()
     boot_marker: str = DEFAULT_BOOT_MARKER
+    columns: tuple[str, ...] = DEFAULT_EXPORT_COLUMNS
 
     def validate(self) -> None:
         if self.period not in ("boot", "24h", "custom"):
             raise ValueError("Choose a valid export period.")
         if self.format not in ("csv", "jsonl"):
             raise ValueError("Choose CSV or JSONL.")
+        if not self.columns:
+            raise ValueError("Select at least one column to export.")
+        if any(column not in EXPORT_COLUMNS for column in self.columns):
+            raise ValueError("Unknown export column.")
+        if len(set(self.columns)) != len(self.columns):
+            raise ValueError("Export columns must not contain duplicates.")
         if self.period == "boot" and not parse_highlights(self.boot_marker):
             raise ValueError("Configure a boot marker in Settings or choose another period.")
         if self.period == "custom":
@@ -121,30 +132,36 @@ def export_events(db_path: Path, destination: Path, options: ExportOptions, *, n
             params = [*boot_params, *params]
         else:
             cte = f"WITH selected AS (SELECT * FROM events WHERE {where}) "
-        columns = ", ".join(f"e.{column}" for column in ("id", *EVENT_COLUMNS))
+        columns = ", ".join(f"e.{'raw' if column == 'raw_base64' else column}"
+                            for column in options.columns)
         cursor = conn.execute(
             cte + f"SELECT {columns} FROM selected e{join} ORDER BY e.received_at, e.id", params)
         count = 0
-        reported_index = EXPORT_COLUMNS.index("reported_time_utc")
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8-sig" if options.format == "csv" else "utf-8",
                                          newline="", dir=target.parent, prefix=f".{target.name}.",
                                          suffix=".tmp", delete=False) as output:
             temporary = Path(output.name)
             writer = csv.writer(output) if options.format == "csv" else None
             if writer:
-                writer.writerow(EXPORT_COLUMNS)
+                writer.writerow(options.columns)
             while rows := cursor.fetchmany(BATCH_SIZE):
                 check_cancelled()
                 for row in rows:
                     check_cancelled()
-                    values = list(row[:-1]) + [base64.b64encode(row[-1]).decode("ascii")]
-                    values[1] = _timestamp(values[1])
-                    if values[reported_index] is not None:
-                        values[reported_index] = _timestamp(values[reported_index])
+                    values = list(row)
+                    for index, column in enumerate(options.columns):
+                        if column == "raw_base64":
+                            values[index] = base64.b64encode(values[index]).decode("ascii")
+                        elif column in ("received_at", "reported_time_utc") and values[index] is not None:
+                            values[index] = _timestamp(values[index])
+                        elif column == "facility" and values[index] is not None:
+                            values[index] = facility_name(values[index])
+                        elif column == "severity" and values[index] is not None:
+                            values[index] = severity_name(values[index])
                     if writer:
                         writer.writerow([_csv_value(value) for value in values])
                     else:
-                        output.write(json.dumps(dict(zip(EXPORT_COLUMNS, values)), ensure_ascii=False) + "\n")
+                        output.write(json.dumps(dict(zip(options.columns, values)), ensure_ascii=False) + "\n")
                 count += len(rows)
                 if progress:
                     progress(count)

@@ -316,8 +316,16 @@ By default, all senders and severities are exported. Enable **Apply current seve
 facility and filter rules** to narrow the data; this does not apply the main window's
 time range, minimap zoom, search navigation, highlights, or table selection.
 
-Both formats include the ID, reception timestamp, source IP/port, facility and severity
-codes, syslog format, parse issues, reported timestamps, hostname, application, process ID,
+Use **Columns to export** to select the fields for either format; at least one column
+must remain selected. The default is a compact log export: **reception time,
+facility, severity, hostname, application, and message**. Source IP, IDs, source port, syslog format,
+parse issues, reported timestamps, process/message IDs, structured data, and raw packet
+data are unchecked by default and can be enabled individually.
+Enable **raw_base64 (original packet)** only when you need the original bytes.
+Unchecked fields are omitted entirely from both the CSV header and JSONL objects.
+
+Available fields include the ID, reception timestamp, source IP/port, facility and severity
+names (for example `local0` and `Warning`), syslog format, parse issues, reported timestamps, hostname, application, process ID,
 message ID, structured data, full message, and original packet bytes encoded as
 `raw_base64`. Timestamps are ISO 8601 UTC; rows are ordered oldest first by reception
 time and ID. CSV uses comma separators, standard quoting, and UTF-8 with a BOM for

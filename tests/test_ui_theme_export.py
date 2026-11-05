@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QFileDialog, QStyle, QStyleOptionSlider
 
 from syslog_monitor.config import Settings, load_settings, save_settings
-from syslog_monitor.export import ExportCancelled
+from syslog_monitor.export import DEFAULT_EXPORT_COLUMNS, EXPORT_COLUMNS, ExportCancelled
 from syslog_monitor.query import EventFilter, EventRow, HighlightRule
 from syslog_monitor.storage import db_path
 from syslog_monitor.service import CaptureService
@@ -213,6 +213,9 @@ def test_export_defaults_custom_bounds_and_filter_opt_in(qtbot, tmp_path):
     assert dialog.format.currentData() == "csv"
     assert not dialog.start.isEnabled() and not dialog.end.isEnabled()
     assert dialog.options().filters.severities is None
+    assert dialog.options().columns == DEFAULT_EXPORT_COLUMNS
+    assert not dialog.column_checks["source_ip"].isChecked()
+    assert not dialog.column_checks["raw_base64"].isChecked()
     dialog.use_filters.setChecked(True)
     assert dialog.options().filters.severities == filters.severities
     dialog.period.setCurrentIndex(dialog.period.findData("custom"))
@@ -227,20 +230,35 @@ def test_export_defaults_custom_bounds_and_filter_opt_in(qtbot, tmp_path):
         dialog.options()
 
 
-def test_export_dialog_background_success_and_failure(qtbot, tmp_path, store, monkeypatch):
+@pytest.mark.parametrize("format", ["csv", "jsonl"])
+def test_export_dialog_background_success_and_failure(qtbot, tmp_path, store, monkeypatch, format):
     store.insert([make_event(0, message="Initializing system"), make_event(1, message="Grüße")])
-    output = tmp_path / "logs.csv"
+    output = tmp_path / f"logs.{format}"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(output), "CSV"))
     dialog = ExportDialog(db_path(tmp_path), "Initializing system", EventFilter())
     qtbot.addWidget(dialog)
+    dialog.format.setCurrentIndex(dialog.format.findData(format))
+    selected = ("received_at", "message")
+    for column, check in dialog.column_checks.items():
+        check.setChecked(column in selected)
     dialog.show()
     dialog.export_button.click()
     assert not dialog.export_button.isEnabled()
+    assert not dialog.columns_group.isEnabled()
     qtbot.waitUntil(lambda: dialog.worker is None)
     assert dialog.export_button.isEnabled()
+    assert dialog.columns_group.isEnabled()
     assert "Exported 2 messages" in dialog.status.text()
     with output.open(encoding="utf-8-sig", newline="") as stream:
-        assert len(list(csv.DictReader(stream))) == 2
+        if format == "csv":
+            reader = csv.DictReader(stream)
+            assert tuple(reader.fieldnames) == selected
+            assert len(list(reader)) == 2
+        else:
+            import json
+            rows = [json.loads(line) for line in stream]
+            assert len(rows) == 2
+            assert all(tuple(row) == selected for row in rows)
     bad = ExportDialog(db_path(tmp_path), "missing marker", EventFilter())
     qtbot.addWidget(bad)
     bad.export_button.click()
@@ -248,6 +266,28 @@ def test_export_dialog_background_success_and_failure(qtbot, tmp_path, store, mo
     assert "Export failed: No stored boot marker" in bad.status.text()
     assert bad.export_button.isEnabled()
     assert output.exists()
+
+
+def test_export_column_selection_applies_to_both_formats_and_requires_one(qtbot, tmp_path, monkeypatch):
+    dialog = ExportDialog(db_path(tmp_path), "Startup", EventFilter())
+    qtbot.addWidget(dialog)
+    assert tuple(dialog.column_checks) == EXPORT_COLUMNS
+    for check in dialog.column_checks.values():
+        check.setChecked(False)
+    def unexpected_file_picker(*args):
+        pytest.fail("Invalid column selection should be rejected before choosing a file")
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", unexpected_file_picker)
+    dialog.export_button.click()
+    assert "Select at least one column" in dialog.status.text()
+    assert dialog.worker is None
+    for format in ("csv", "jsonl"):
+        dialog.format.setCurrentIndex(dialog.format.findData(format))
+        dialog.column_checks["message"].setChecked(True)
+        assert dialog.options().columns == ("message",)
+        dialog.column_checks["raw_base64"].setChecked(True)
+        assert dialog.options().columns == ("message", "raw_base64")
+        for check in dialog.column_checks.values():
+            check.setChecked(False)
 
 
 def test_export_cancel_file_picker_does_not_start_worker(qtbot, tmp_path, monkeypatch):
