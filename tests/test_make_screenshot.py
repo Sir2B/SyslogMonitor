@@ -38,7 +38,10 @@ def test_demo_data_is_deterministic_and_realistic(screenshot):
     ("system", "main"), ("light", "main"), ("dark", "main"),
     ("dark", "columns"), ("light", "highlights"), ("light", "settings"), ("dark", "export"),
 ])
-def test_render_writes_png_of_requested_size(qapp, screenshot, tmp_path, theme, view):
+def test_render_writes_png_of_requested_size(qapp, screenshot, tmp_path, theme, view, monkeypatch):
+    demo_datagrams = screenshot.demo_datagrams
+    monkeypatch.setattr(screenshot, "demo_datagrams",
+                        lambda now_ms: demo_datagrams(now_ms)[-4:])
     height = 860 if view == "settings" else 760
     output = (screenshot.render(tmp_path / "shot.png", 1200, height) if theme == "system"
               else screenshot.render(tmp_path / "shot.png", 1200, height, theme=theme, view=view))

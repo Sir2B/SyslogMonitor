@@ -55,7 +55,7 @@ jobs:
           & ".\packaging\build.ps1" `
             -PythonVersion "3.15" `
             -PythonExecutable "${{ steps.setup-python.outputs.python-path }}" `
-            -WorkRoot (Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.15")
+            -WorkRoot (Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.15") -SkipTests
       - name: Verify installer and portable ZIP
         shell: pwsh
         run: |

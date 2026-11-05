@@ -484,6 +484,12 @@ can be tested without the GUI. The GUI reads through `QueryRunner` in a dedicate
 
 ## Tests
 
+CI runs the test suite on both supported Python versions before building packages;
+the dependent packaging job uses `-SkipTests` to avoid running the same suite again.
+To find local bottlenecks, run `python -m pytest -q --durations=20`.
+Screenshot smoke tests use four demo messages; the separate demo-data test still
+checks the full deterministic dataset, and release screenshots use the full dataset.
+
 ```powershell
 pytest -q                          # unit, offscreen GUI, real UDP/TCP/TLS, and MCP-over-HTTP tests
 $env:SYSLOG_MONITOR_SLOW_TESTS = 1  # enable load tests (~3.5 minutes)
