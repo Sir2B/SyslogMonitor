@@ -615,6 +615,22 @@ def test_table_columns_can_be_hidden_and_visibility_is_saved(qtbot, window):
                for index in range(window.model.columnCount())) == 1
 
 
+def test_zoom_shortcuts_and_factor_are_saved(qtbot, window):
+    assert window.zoom_controller.factor == 1.0
+    window.zoom_in_action.trigger()
+    assert window.zoom_controller.factor == 1.1
+    assert "<br>" not in window.counter_label.text()
+    assert "Live:" in window.counter_label.toolTip()
+    window._save_ui_state()
+    window.zoom_reset_action.trigger()
+    assert window.zoom_controller.factor == 1.0
+    window._ui_state.setValue("zoom", 1.1)
+    window._restore_ui_state()
+    assert window.zoom_controller.factor == 1.1
+    window.zoom_reset_action.trigger()
+    assert window.zoom_controller.factor == 1.0
+
+
 def test_stale_query_results_are_discarded(qtbot, tmp_path):
     from syslog_monitor.storage import EventStore
     store = EventStore(tmp_path)

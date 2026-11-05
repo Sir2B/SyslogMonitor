@@ -40,6 +40,7 @@ from syslog_monitor.ui.palette import apply_theme, is_dark, status_color
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.ui.settings_dialog import SettingsDialog
 from syslog_monitor.ui.tray import TrayController
+from syslog_monitor.ui.zoom import MAX_ZOOM, MIN_ZOOM, ZoomController
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +110,11 @@ class MainWindow(QMainWindow):
         self._watch_request: int | None = None
         self._rate_tracker = RateTracker()
         self._export_dialog: ExportDialog | None = None
+        app = QApplication.instance()
+        if not isinstance(app, QApplication):
+            raise RuntimeError("A QApplication is required to create the main window.")
+        self.zoom_controller = ZoomController(app, self)
+        self.zoom_controller.zoom_changed.connect(self._zoom_changed)
 
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.setWindowIcon(app_icon())
@@ -116,6 +122,7 @@ class MainWindow(QMainWindow):
         self.queries.error.connect(self._on_query_error)
 
         self._build_ui()
+        self._install_zoom_shortcuts()
         self.tray = TrayController(self) if tray_enabled else None
         if self.tray:
             self.tray.open_requested.connect(self.show_and_raise)
@@ -388,6 +395,24 @@ class MainWindow(QMainWindow):
             self.statusBar().addPermanentWidget(widget)
         self._show_mcp_state()
         self._update_mode_label()
+
+    def _install_zoom_shortcuts(self) -> None:
+        self.zoom_in_action = QAction("Zoom in", self, shortcut=QKeySequence.ZoomIn)
+        self.zoom_out_action = QAction("Zoom out", self, shortcut=QKeySequence.ZoomOut)
+        self.zoom_reset_action = QAction("Reset zoom", self, shortcut=QKeySequence("Ctrl+0"))
+        for action in (self.zoom_in_action, self.zoom_out_action, self.zoom_reset_action):
+            action.setShortcutContext(Qt.ApplicationShortcut)
+            self.addAction(action)
+        self.zoom_in_action.triggered.connect(lambda: self.zoom_controller.adjust(1))
+        self.zoom_out_action.triggered.connect(lambda: self.zoom_controller.adjust(-1))
+        self.zoom_reset_action.triggered.connect(lambda: self.zoom_controller.set_zoom(1.0))
+
+    def _zoom_changed(self, factor: float) -> None:
+        self._ui_state.setValue("zoom", factor)
+        self._ui_state.sync()
+        self._update_status()
+        self.statusBar().showMessage(
+            f"Zoom: {factor:.0%} (Ctrl+0 to reset)", 2500)
 
     def _show_column_menu(self, position) -> None:
         header = self.table.horizontalHeader()
@@ -938,11 +963,16 @@ class MainWindow(QMainWindow):
         rates = self._rate_tracker.update(snap)
         self._show_listener_state(snap)
         self._show_mcp_state()
-        self.counter_label.setText(
-            f"Received {format_count(snap.received)} · stored {format_count(snap.persisted)} · "
-            f"queued {format_count(snap.queued)}<br>"
-            f"<span style='color:{status_color('#555')}'>Live: {rates.received:.1f}/s received · "
-            f"{rates.persisted:.1f}/s stored · {rates.dropped:.1f}/s dropped</span>")
+        counts = (f"Received {format_count(snap.received)} · stored {format_count(snap.persisted)} · "
+                  f"queued {format_count(snap.queued)}")
+        live_rates = (f"Live: {rates.received:.1f}/s received · "
+                      f"{rates.persisted:.1f}/s stored · {rates.dropped:.1f}/s dropped")
+        self.counter_label.setToolTip(f"{counts}\n{live_rates}")
+        if self.zoom_controller.factor > 1.0:
+            self.counter_label.setText(counts)
+        else:
+            self.counter_label.setText(
+                f"{counts}<br><span style='color:{status_color('#555')}'>{live_rates}</span>")
         losses = snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing
         if losses:
             self.counter_label.setText(self.counter_label.text() +
@@ -1182,6 +1212,7 @@ class MainWindow(QMainWindow):
         s.setValue("columns", self.table.horizontalHeader().saveState())
         s.setValue("visible_columns", json.dumps([
             not self.table.isColumnHidden(index) for index in range(self.model.columnCount())]))
+        s.setValue("zoom", self.zoom_controller.factor)
         s.setValue("range_index", self.range_combo.currentIndex())
         custom = self.custom_bounds() or (None, None)
         s.setValue("range_from", "" if custom[0] is None else str(custom[0]))
@@ -1253,3 +1284,12 @@ class MainWindow(QMainWindow):
             self.filter_bar.restore_state(json.loads(s.value("filters", "{}")))
         except (TypeError, ValueError):
             log.warning("Could not read stored filters; using defaults")
+        try:
+            zoom = float(s.value("zoom", 1.0))
+            if not MIN_ZOOM <= zoom <= MAX_ZOOM:
+                raise ValueError("stored zoom is outside the supported range")
+        except (TypeError, ValueError):
+            log.warning("Could not read stored zoom; using the default")
+            self.statusBar().showMessage("Could not read stored zoom — using 100%", 10000)
+            zoom = 1.0
+        self.zoom_controller.set_zoom(zoom)
