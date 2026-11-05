@@ -14,7 +14,7 @@
 #>
 param(
     [switch]$SkipTests,
-    [string]$PythonVersion = "3.15",
+    [string]$PythonVersion = "3.14",
     [string]$PythonExecutable,
     [string]$WorkRoot = (Join-Path $env:LOCALAPPDATA "SyslogMonitor-build")
 )

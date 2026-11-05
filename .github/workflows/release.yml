@@ -38,16 +38,21 @@ jobs:
           ref: ${{ github.sha }}
           path: .release-tooling
           persist-credentials: false
-      - name: Set up Python
+      - name: Set up Python for tests
         id: setup-python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
+      - name: Set up Python for Windows package
+        id: setup-build-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
       - name: Check release version
         id: version
         shell: pwsh
         env:
-          PYTHON_EXECUTABLE: ${{ steps.setup-python.outputs.python-path }}
+          PYTHON_EXECUTABLE: ${{ steps.setup-build-python.outputs.python-path }}
         run: |
           $source = Get-Content ".\src\syslog_monitor\__init__.py" -Raw
           $version = [regex]::Match($source, '__version__\s*=\s*"([^"]+)"').Groups[1].Value
@@ -62,18 +67,56 @@ jobs:
             throw "Tag $env:TAG, application version $version and project version $projectVersion do not match."
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-      - name: Build and test distribution
+      - name: Test release source
         shell: pwsh
         env:
           PYTHON_EXECUTABLE: ${{ steps.setup-python.outputs.python-path }}
           QT_QPA_PLATFORM: offscreen
         run: |
-          $workRoot = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.15"
+          $testRoot = Join-Path $env:RUNNER_TEMP "SyslogMonitor-test-3.15"
+          $testVenv = Join-Path $testRoot "venv"
+          & $env:PYTHON_EXECUTABLE -m venv $testVenv
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not create the test environment."
+          }
+          $testPython = Join-Path $testVenv "Scripts\python.exe"
+          & $testPython -m pip install --quiet --upgrade pip
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not update pip in the test environment."
+          }
+          & $testPython -m pip install --quiet "$env:GITHUB_WORKSPACE[test]"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not install test dependencies."
+          }
+          & $testPython -m pytest -q -p no:cacheprovider
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tests failed."
+          }
+      - name: Build Windows distribution
+        shell: pwsh
+        env:
+          PYTHON_EXECUTABLE: ${{ steps.setup-build-python.outputs.python-path }}
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $workRoot = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.14"
           & $env:PYTHON_EXECUTABLE -m venv (Join-Path $workRoot "venv")
           if ($LASTEXITCODE -ne 0) {
             throw "Could not create the build environment."
           }
-          & ".\packaging\build.ps1" -PythonVersion "3.15" -WorkRoot $workRoot
+          & ".\packaging\build.ps1" -PythonVersion "3.14" -WorkRoot $workRoot -SkipTests
+      - name: Smoke-test packaged MCP server
+        shell: pwsh
+        run: |
+          $workRoot = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.14"
+          $executable = Join-Path $workRoot "pyinstaller\dist\SyslogMonitor\SyslogMonitor.exe"
+          $smokeTest = ".\packaging\smoke_test_mcp.ps1"
+          if (-not (Test-Path -LiteralPath $smokeTest -PathType Leaf)) {
+            $smokeTest = ".\.release-tooling\packaging\smoke_test_mcp.ps1"
+          }
+          if (-not (Test-Path -LiteralPath $smokeTest -PathType Leaf)) {
+            throw "Packaged MCP smoke test is unavailable."
+          }
+          & $smokeTest -Executable $executable -WorkRoot $workRoot
       # Native Qt platform plugin on purpose: "offscreen" has no fonts on Windows.
       - name: Render screenshot
         shell: pwsh
@@ -86,7 +129,7 @@ jobs:
             }
             Copy-Item -LiteralPath $fallback -Destination $screenshotScript
           }
-          $python = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.15\venv\Scripts\python.exe"
+          $python = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.14\venv\Scripts\python.exe"
           & $python $screenshotScript --output (Join-Path $env:RUNNER_TEMP "screenshot.png")
           if ($LASTEXITCODE -ne 0) {
             throw "Could not render the screenshot."
