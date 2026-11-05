@@ -5,14 +5,19 @@ persistently in SQLite, and browsing them with search, filters, highlights, and 
 **minimap**. It is designed to run for days at a time and continues receiving messages
 while minimized to the system tray.
 
+![Syslog Monitor main window](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot.png)
+
 **License:** MIT (see [LICENSE](LICENSE)). The EXE and installer bundle third-party
 software, including Qt/PySide6 under LGPL-3.0. Their license texts are included in the
 packages; see [Distribution](#distribution-exe--installer).
 
 ## Installation
 
-Requires Python 3.11 or later with SQLite FTS5 (included with the python.org Windows
-builds).
+The Windows installer and portable ZIP are available on the
+[latest release](https://github.com/Sir2B/SyslogMonitor/releases/latest).
+
+To run from source, Python 3.11 or later with SQLite FTS5 is required (included with the
+python.org Windows builds).
 
 ```powershell
 # From the project directory; create the virtual environment outside synchronized folders.
@@ -119,6 +124,26 @@ Notes:
   text. Qt/PySide6 is used under LGPL-3.0; the license texts are in
   `packaging/licenses/`. Qt DLLs are dynamically linked and replaceable. The notices
   include sources for the corresponding source code.
+
+### Releases and screenshot
+
+Pushing a `v*` tag runs `.github/workflows/release.yml` on Windows. The workflow tests
+and builds the tagged source with `packaging/build.ps1`, creates the GitHub release, and
+attaches both the installer and the portable ZIP described above. It also renders the main
+window with deterministic demo traffic (`packaging/make_screenshot.py`), uploads
+`screenshot.png`, and embeds it in the release notes. The README image shows the latest
+release's screenshot; none of these generated files need to be committed to Git.
+
+Before creating a tag, set the same version in `pyproject.toml` and
+`src/syslog_monitor/__init__.py` (for example, `1.2.3` for tag `v1.2.3`). The workflow
+fails before building if they do not match. It can also be started manually for an
+existing tag. On a rerun, an existing screenshot is replaced, but existing installer and
+portable ZIP assets are kept; delete an asset from the release first if it should be
+rebuilt and uploaded again. For older tags without the screenshot script, the current
+workflow supplies it while rendering the tagged application.
+
+To render a screenshot locally, run `python packaging\make_screenshot.py`
+(output: `dist\screenshot.png`).
 
 ## Usage
 
