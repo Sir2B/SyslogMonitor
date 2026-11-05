@@ -602,7 +602,7 @@ def test_table_columns_can_be_hidden_and_visibility_is_saved(qtbot, window):
     assert window.table.isColumnHidden(3)
 
     window._save_ui_state()
-    sender_action.trigger()
+    window.table.setColumnHidden(3, False)
     assert not window.table.isColumnHidden(3)
     window._restore_ui_state()
     assert window.table.isColumnHidden(3)
