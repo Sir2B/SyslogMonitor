@@ -1,15 +1,21 @@
+import csv
 import sys
 from dataclasses import replace
+from threading import Event
 
 import pytest
-from PySide6.QtCore import QSettings, Qt
+from conftest import BASE_MS, make_event
+from PySide6.QtCore import QDateTime, QSettings, QThread, Qt
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionSlider
+from PySide6.QtWidgets import QApplication, QFileDialog, QStyle, QStyleOptionSlider
 
 from syslog_monitor.config import Settings, load_settings, save_settings
-from syslog_monitor.query import EventRow, HighlightRule
+from syslog_monitor.export import ExportCancelled
+from syslog_monitor.query import EventFilter, EventRow, HighlightRule
+from syslog_monitor.storage import db_path
 from syslog_monitor.service import CaptureService
 from syslog_monitor.ui.event_model import EventTableModel, ROW_BACKGROUND, ROW_BACKGROUND_DARK
+from syslog_monitor.ui.export_dialog import ExportDialog
 from syslog_monitor.ui.minimap import MinimapWidget
 from syslog_monitor.ui.main_window import MainWindow, Timings
 from syslog_monitor.ui.palette import apply_theme, highlight_text_color, is_dark
@@ -199,8 +205,83 @@ def test_minimap_dark_background_and_readable_selection(qtbot, restore_theme):
     assert widget.grab().toImage().pixelColor(100, 25).lightness() > 128
 
 
+def test_export_defaults_custom_bounds_and_filter_opt_in(qtbot, tmp_path):
+    filters = EventFilter(severities=frozenset({3}))
+    dialog = ExportDialog(db_path(tmp_path), "Startup", filters)
+    qtbot.addWidget(dialog)
+    assert dialog.period.currentData() == "boot"
+    assert dialog.format.currentData() == "csv"
+    assert not dialog.start.isEnabled() and not dialog.end.isEnabled()
+    assert dialog.options().filters.severities is None
+    dialog.use_filters.setChecked(True)
+    assert dialog.options().filters.severities == filters.severities
+    dialog.period.setCurrentIndex(dialog.period.findData("custom"))
+    assert dialog.start.isEnabled() and dialog.end.isEnabled()
+    dialog.start.setDateTime(QDateTime.fromMSecsSinceEpoch(BASE_MS + 456))
+    dialog.end.setDateTime(QDateTime.fromMSecsSinceEpoch(BASE_MS + 2000))
+    options = dialog.options()
+    assert options.filters.start_ms == BASE_MS
+    assert options.filters.end_ms == BASE_MS + 3000
+    dialog.end.setDateTime(dialog.start.dateTime().addSecs(-1))
+    with pytest.raises(ValueError):
+        dialog.options()
 
 
+def test_export_dialog_background_success_and_failure(qtbot, tmp_path, store, monkeypatch):
+    store.insert([make_event(0, message="Initializing system"), make_event(1, message="Grüße")])
+    output = tmp_path / "logs.csv"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(output), "CSV"))
+    dialog = ExportDialog(db_path(tmp_path), "Initializing system", EventFilter())
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.export_button.click()
+    assert not dialog.export_button.isEnabled()
+    qtbot.waitUntil(lambda: dialog.worker is None)
+    assert dialog.export_button.isEnabled()
+    assert "Exported 2 messages" in dialog.status.text()
+    with output.open(encoding="utf-8-sig", newline="") as stream:
+        assert len(list(csv.DictReader(stream))) == 2
+    bad = ExportDialog(db_path(tmp_path), "missing marker", EventFilter())
+    qtbot.addWidget(bad)
+    bad.export_button.click()
+    qtbot.waitUntil(lambda: bad.worker is None)
+    assert "Export failed: No stored boot marker" in bad.status.text()
+    assert bad.export_button.isEnabled()
+    assert output.exists()
+
+
+def test_export_cancel_file_picker_does_not_start_worker(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: ("", ""))
+    dialog = ExportDialog(db_path(tmp_path), "boot", EventFilter())
+    qtbot.addWidget(dialog)
+    dialog.start_export()
+    assert dialog.worker is None
+    assert dialog.export_button.isEnabled()
+
+
+def test_export_dialog_cancel_waits_for_worker(qtbot, tmp_path, monkeypatch):
+    from syslog_monitor.ui import export_dialog
+    entered = Event()
+    def wait_for_cancel(*args, cancel, **kwargs):
+        assert QThread.currentThread() != QApplication.instance().thread()
+        entered.set()
+        if not cancel.wait(10):
+            raise OSError("Timed out waiting for cancellation")
+        raise ExportCancelled()
+    monkeypatch.setattr(export_dialog, "export_events", wait_for_cancel)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(tmp_path / "logs.csv"), ""))
+    dialog = ExportDialog(db_path(tmp_path), "boot", EventFilter())
+    qtbot.addWidget(dialog)
+    dialog.show()
+    try:
+        dialog.start_export()
+        qtbot.waitUntil(entered.is_set)
+        dialog.reject()
+        qtbot.waitUntil(lambda: dialog.worker is None)
+        assert not dialog.isVisible()
+        assert "cancelled" in dialog.status.text()
+    finally:
+        dialog.shutdown()
 
 
 def test_window_loads_persisted_theme_and_applies_changes_without_restarting_listener(
@@ -232,6 +313,15 @@ def test_window_loads_persisted_theme_and_applies_changes_without_restarting_lis
         assert service.bound_port == original_port and service.listening
         assert service.settings.theme == "light"
         assert json.loads(path.read_text())["theme"] == "light"
+        assert any(window.export_action in toolbar.actions()
+                   for toolbar in window.findChildren(main_window.QToolBar))
+        opened = []
+        monkeypatch.setattr(main_window.ExportDialog, "exec", lambda dialog: opened.append(dialog))
+        window.export_action.trigger()
+        assert len(opened) == 1
+        assert opened[0]._db_path == service.db_path
+        assert opened[0].period.currentData() == "boot"
+        assert window._export_dialog is None
     finally:
         window.shutdown()
         service.shutdown()

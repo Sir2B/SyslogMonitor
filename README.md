@@ -298,6 +298,40 @@ preserves tabs and line breaks for spreadsheet applications. Selection applies t
 loaded table window (up to 5,000 rows), not the entire database; changing filters or
 refreshing clears the selection.
 
+### Export
+
+Use **Export...** in the toolbar to save **CSV** or **JSONL**. The period dropdown offers:
+
+- **Since last reboot (per sender)** (default): from the newest stored boot-marker
+  message for each source IP, including that message. Configure **Settings > Boot marker**
+  (default `Initializing system`; multiple literal, ASCII-case-insensitive texts separated
+  by `;`). This means the sending device's reboot, not a restart of the monitor or PC.
+  Senders without a retained boot marker are excluded and their number is reported.
+  If no boot marker is found at all, the export reports an error instead of silently
+  choosing another period.
+- **Last 24 hours**: a fixed window ending when the export starts.
+- **From / To**: a custom local date/time range, including the displayed end second.
+
+By default, all senders and severities are exported. Enable **Apply current severity,
+facility and filter rules** to narrow the data; this does not apply the main window's
+time range, minimap zoom, search navigation, highlights, or table selection.
+
+Both formats include the ID, reception timestamp, source IP/port, facility and severity
+codes, syslog format, parse issues, reported timestamps, hostname, application, process ID,
+message ID, structured data, full message, and original packet bytes encoded as
+`raw_base64`. Timestamps are ISO 8601 UTC; rows are ordered oldest first by reception
+time and ID. CSV uses comma separators, standard quoting, and UTF-8 with a BOM for
+spreadsheet compatibility. Formula-like text is prefixed with an apostrophe to prevent
+spreadsheet execution. JSONL has one JSON object per line, preserves message text exactly,
+and represents missing values as `null` (CSV uses empty cells).
+
+Exports stream a consistent snapshot of committed database records in the background,
+without the table's 5,000-row limit. Receiving continues; messages committed after the
+snapshot starts are not included. Retention may already have removed older data. Long
+exports may temporarily increase SQLite WAL disk usage while the snapshot is held.
+Cancel or close the export dialog to stop. A destination file is replaced only after
+successful completion; errors or cancellation leave an existing destination unchanged.
+
 ## AI access (MCP)
 
 While Syslog Monitor is running (including in the system tray), it provides an
@@ -408,6 +442,7 @@ src/syslog_monitor/
   writer.py      Batch writer thread, retention/budget, retries
   storage.py     SQLite schema, migrations, deletion logic
   query.py       Read queries, filters → SQL, histogram
+  export.py      Snapshot-based, streaming CSV/JSONL export
   service.py     CaptureService connects receiver, writer, and store
   config.py      Validated JSON settings
   mcp_tools.py   Read-only AI queries (testable without MCP/Qt dependencies)
