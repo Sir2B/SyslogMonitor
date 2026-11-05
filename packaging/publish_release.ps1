@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][string]$Tag,
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$DistributionDir,
-    [Parameter(Mandatory)][string]$Screenshot
+    [Parameter(Mandatory)][string]$Screenshot,
+    [string]$ScreenshotGalleryDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,7 +19,15 @@ $packages = @(
     (Join-Path $DistributionDir "SyslogMonitor-$Version-setup.exe"),
     (Join-Path $DistributionDir "SyslogMonitor-$Version-portable.zip")
 )
-$assets = @($Screenshot) + $packages
+$screenshots = @($Screenshot)
+if ($ScreenshotGalleryDir) {
+    $screenshots += @(
+        foreach ($name in @("light", "dark", "columns", "highlights", "settings", "export")) {
+            Join-Path $ScreenshotGalleryDir "screenshot-$name.png"
+        }
+    )
+}
+$assets = $screenshots + $packages
 foreach ($path in $assets) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Expected release asset was not created: $path"
@@ -46,9 +55,9 @@ if ($lookupCode -ne 0) {
     $release = $lookup | ConvertFrom-Json
 } else {
     $release = $lookup | ConvertFrom-Json
-    & gh release upload $Tag $Screenshot --repo $repository --clobber
+    & gh release upload $Tag @screenshots --repo $repository --clobber
     if ($LASTEXITCODE -ne 0) {
-        throw "Could not upload the screenshot to $Tag."
+        throw "Could not upload the screenshots to $Tag."
     }
     $existingNames = @($release.assets | ForEach-Object { $_.name })
     $missingPackages = @(

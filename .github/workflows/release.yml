@@ -118,7 +118,7 @@ jobs:
           }
           & $smokeTest -Executable $executable -WorkRoot $workRoot
       # Native Qt platform plugin on purpose: "offscreen" has no fonts on Windows.
-      - name: Render screenshot
+      - name: Render screenshots
         shell: pwsh
         run: |
           $screenshotScript = ".\packaging\make_screenshot.py"
@@ -130,9 +130,17 @@ jobs:
             Copy-Item -LiteralPath $fallback -Destination $screenshotScript
           }
           $python = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.14\venv\Scripts\python.exe"
-          & $python $screenshotScript --output (Join-Path $env:RUNNER_TEMP "screenshot.png")
+          $arguments = @($screenshotScript, "--output", (Join-Path $env:RUNNER_TEMP "screenshot.png"))
+          if (Select-String -LiteralPath $screenshotScript -SimpleMatch "--gallery-dir" -Quiet) {
+            $gallery = Join-Path $env:RUNNER_TEMP "screenshots"
+            $arguments += @("--theme", "light", "--gallery-dir", $gallery)
+            "SCREENSHOT_GALLERY_DIR=$gallery" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            Write-Host "Tagged source supports only the main screenshot."
+          }
+          & $python @arguments
           if ($LASTEXITCODE -ne 0) {
-            throw "Could not render the screenshot."
+            throw "Could not render the screenshots."
           }
       - name: Create or update release
         shell: pwsh
@@ -145,5 +153,9 @@ jobs:
           } else {
             $publisher = ".\packaging\publish_release.ps1"
           }
+          $options = @{}
+          if ($env:SCREENSHOT_GALLERY_DIR) {
+            $options.ScreenshotGalleryDir = $env:SCREENSHOT_GALLERY_DIR
+          }
           & $publisher -Tag $env:TAG -Version $env:VERSION -DistributionDir ".\dist" `
-            -Screenshot (Join-Path $env:RUNNER_TEMP "screenshot.png")
+            -Screenshot (Join-Path $env:RUNNER_TEMP "screenshot.png") @options

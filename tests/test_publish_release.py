@@ -64,7 +64,7 @@ function gh {
     }
 }
 & $env:PUBLISH_SCRIPT -Tag $env:RELEASE_TAG -Version $env:RELEASE_VERSION `
-    -DistributionDir $env:DIST_PATH -Screenshot $env:SHOT_PATH
+    -DistributionDir $env:DIST_PATH -Screenshot $env:SHOT_PATH -ScreenshotGalleryDir $env:GALLERY_PATH
 """
 
 
@@ -80,7 +80,8 @@ def release_files(tmp_path):
     return dist, setup, portable, screenshot
 
 
-def publish(tmp_path, release_files, *, release=None, tag="v1.0.0", lookup_error="", fail=""):
+def publish(tmp_path, release_files, *, release=None, tag="v1.0.0", lookup_error="", fail="",
+            gallery=None):
     dist, _setup, _portable, screenshot = release_files
     log_path = tmp_path / "gh.jsonl"
     env = os.environ.copy()
@@ -90,6 +91,7 @@ def publish(tmp_path, release_files, *, release=None, tag="v1.0.0", lookup_error
         "RELEASE_VERSION": "1.0.0",
         "DIST_PATH": str(dist),
         "SHOT_PATH": str(screenshot),
+        "GALLERY_PATH": str(gallery) if gallery is not None else "",
         "GITHUB_REPOSITORY": "example/SyslogMonitor",
         "GH_LOG": str(log_path),
         "GH_NEW_RELEASE": "1" if release is None else "0",
@@ -127,6 +129,37 @@ def test_existing_release_keeps_its_binaries(tmp_path, release_files):
     assert "Existing notes" in records[2]["notes"]
     assert f"Keeping existing release asset: {setup.name}" in result.stdout
     assert f"Keeping existing release asset: {portable.name}" in result.stdout
+
+
+@pytest.mark.parametrize("existing_release", [False, True])
+def test_gallery_is_uploaded_with_screenshots_not_package_replacements(
+        tmp_path, release_files, existing_release):
+    gallery = tmp_path / "screenshots"
+    gallery.mkdir()
+    images = [gallery / f"screenshot-{name}.png"
+              for name in ("light", "dark", "columns", "highlights", "settings", "export")]
+    for image in images:
+        image.write_bytes(b"test image")
+    release = ({"body": "", "assets": [{"name": path.name} for path in release_files[1:3]]}
+               if existing_release else None)
+    result, records = publish(tmp_path, release_files, release=release, gallery=gallery)
+    assert result.returncode == 0, result.stderr
+    command = records[1]["args"]
+    assert all(str(image) in command for image in images)
+    if existing_release:
+        assert command[1] == "upload" and "--clobber" in command
+        assert all(str(package) not in command for package in release_files[1:3])
+    else:
+        assert command[1] == "create"
+
+
+def test_incomplete_gallery_fails_before_publishing(tmp_path, release_files):
+    gallery = tmp_path / "screenshots"
+    gallery.mkdir()
+    result, records = publish(tmp_path, release_files, gallery=gallery)
+    assert result.returncode != 0
+    assert "Expected release asset was not created" in result.stderr
+    assert records == []
 
 
 @pytest.mark.parametrize("existing_indexes", [(), (1,), (2,)])

@@ -1,8 +1,8 @@
-"""Render a screenshot of the main window filled with realistic demo syslog traffic.
+"""Render demo screenshots of the main window, menus, and dialogs.
 
-Used by the release workflow; the image is attached to the GitHub release instead of
-being committed. Use the native Qt platform plugin: on Windows the ``offscreen`` plugin
-has no fonts and renders every glyph as a box.
+The release workflow attaches the images to the release; the README gallery
+links to these assets. Use the native Qt platform plugin: on Windows
+the ``offscreen`` plugin has no fonts and renders every glyph as a box.
 """
 
 from __future__ import annotations
@@ -18,16 +18,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from PySide6.QtCore import QDeadlineTimer, QLocale, QSettings  # noqa: E402
+from PySide6.QtCore import QDeadlineTimer, QLocale, QPoint, QSettings  # noqa: E402
+from PySide6.QtGui import QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from syslog_monitor.config import Settings  # noqa: E402
 from syslog_monitor.firewall import FirewallCheck, Level  # noqa: E402
+from syslog_monitor.i18n import set_language  # noqa: E402
 from syslog_monitor.parser import parse_datagram  # noqa: E402
 from syslog_monitor.query import HighlightRule  # noqa: E402
 from syslog_monitor.service import CaptureService  # noqa: E402
 from syslog_monitor.storage import EventStore  # noqa: E402
 from syslog_monitor.ui.main_window import MainWindow  # noqa: E402
+from syslog_monitor.ui.export_dialog import ExportDialog  # noqa: E402
+from syslog_monitor.ui.settings_dialog import SettingsDialog  # noqa: E402
 
 HOUR_MS = 3_600_000
 SPAN_MS = 20 * HOUR_MS  # inside the default "24 hours" range
@@ -138,19 +142,26 @@ def _wait(app: QApplication, condition, timeout_s: float = 30.0) -> None:
         time.sleep(0.02)
 
 
-def render(output: Path, width: int = 1400, height: int = 860) -> Path:
+def render(output: Path, width: int = 1400, height: int = 860, *,
+           theme: str = "system", view: str = "main") -> Path:
+    if theme not in ("system", "light", "dark"):
+        raise ValueError(f"Unknown theme: {theme}")
+    if view not in ("main", "columns", "highlights", "settings", "export"):
+        raise ValueError(f"Unknown view: {view}")
     app = QApplication.instance() or QApplication(sys.argv[:1])
+    set_language("en")
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
     with tempfile.TemporaryDirectory(prefix="syslog-monitor-screenshot-") as tmp:
         tmp_dir = Path(tmp)
         now_ms = time.time_ns() // 1_000_000
         total = fill_store(tmp_dir / "data", now_ms)
-        service = CaptureService(tmp_dir / "data", Settings(bind_host="127.0.0.1", port=0))
+        service = CaptureService(tmp_dir / "data", Settings(bind_host="127.0.0.1", port=0, theme=theme))
         service.start_listener()
         window = MainWindow(
             service, settings_path=tmp_dir / "settings.json",
             ui_state=QSettings(str(tmp_dir / "ui.ini"), QSettings.IniFormat), tray_enabled=False,
             firewall_checker=lambda *_args: FirewallCheck(Level.OK, "Firewall allows syslog"))
+        overlay = None
         try:
             for row in list(window.highlights.rule_rows):
                 window.highlights.remove_rule(row)
@@ -162,13 +173,39 @@ def render(output: Path, width: int = 1400, height: int = 860) -> Path:
                   and window.minimap.histogram.total >= total)
             window.table.selectRow(3)  # the warning below the highlighted message fills the detail pane
             _wait(app, lambda: bool(window.details.toPlainText()))
+            if view == "highlights":
+                window.highlights.edit_rule(window.highlights.rule_rows[0])
+            elif view == "columns":
+                overlay = window.column_menu
+                header = window.table.horizontalHeader()
+                overlay.popup(header.mapToGlobal(QPoint(220, header.height())))
+            elif view in ("settings", "export"):
+                overlay = (SettingsDialog(Settings(theme=theme), window) if view == "settings"
+                           else ExportDialog(service.db_path, service.settings.boot_marker,
+                                             window.filter_bar.current_filter(), window))
+                overlay.show()
+                overlay.adjustSize()
+                overlay.move(window.mapToGlobal(QPoint(
+                    (window.width() - overlay.width()) // 2,
+                    (window.height() - overlay.height()) // 2)))
             for _ in range(20):
                 app.processEvents()
                 time.sleep(0.02)
             output.parent.mkdir(parents=True, exist_ok=True)
-            if not window.grab().save(str(output), "PNG"):
+            image = window.grab()
+            if overlay is not None:
+                painter = QPainter(image)
+                try:
+                    position = window.mapFromGlobal(overlay.mapToGlobal(QPoint(0, 0)))
+                    painter.drawPixmap(position, overlay.grab())
+                finally:
+                    painter.end()
+            if not image.save(str(output), "PNG"):
                 raise OSError(f"Could not write {output}")
         finally:
+            if overlay is not None:
+                overlay.close()
+            window.close()
             window.shutdown()
             service.shutdown()
     return output
@@ -179,8 +216,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=ROOT / "dist" / "screenshot.png")
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=860)
+    parser.add_argument("--theme", choices=("system", "light", "dark"), default="system")
+    parser.add_argument("--view", choices=("main", "columns", "highlights", "settings", "export"),
+                        default="main")
+    parser.add_argument("--gallery-dir", type=Path,
+                        help="Also render light/dark views, menus, and dialogs into this directory")
     args = parser.parse_args(argv)
-    print(render(args.output, args.width, args.height))
+    print(render(args.output, args.width, args.height, theme=args.theme, view=args.view))
+    if args.gallery_dir is not None:
+        for name, theme, view in (
+            ("light", "light", "main"), ("dark", "dark", "main"),
+            ("columns", "dark", "columns"), ("highlights", "light", "highlights"),
+            ("settings", "light", "settings"), ("export", "dark", "export"),
+        ):
+            print(render(args.gallery_dir / f"screenshot-{name}.png", args.width, args.height,
+                         theme=theme, view=view))
     return 0
 
 
