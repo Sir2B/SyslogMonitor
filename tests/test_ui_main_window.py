@@ -6,7 +6,7 @@ import io
 
 import pytest
 from conftest import BASE_MS, make_event, send_udp
-from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import QApplication, QToolBar
 
@@ -37,6 +37,20 @@ def window(qtbot, tmp_path):
 
 def send(win, *messages: str):
     send_udp(win.service.bound_port, *(m.encode() for m in messages))
+
+
+def test_client_checks_dialog_keeps_normal_receiver_unchanged(qtbot, window):
+    original_port = window.service.bound_port
+    def close_dialog():
+        dialog = window._diagnostics_dialog
+        assert dialog is not None
+        assert window.service.bound_port == original_port
+        dialog.reject()
+    QTimer.singleShot(0, close_dialog)
+    window.diagnostics_action.trigger()
+    assert window._diagnostics_dialog is None
+    send(window, "<134>Nov  6 00:00:00 client app: normal reception")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 1)
 
 
 def test_time_controls_are_grouped_with_minimap(qtbot, window):

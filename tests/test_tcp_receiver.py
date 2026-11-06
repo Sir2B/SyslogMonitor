@@ -40,6 +40,19 @@ def test_framing_is_independent_of_tcp_chunk_boundaries():
     assert [message for byte in wire for message in framer.feed(bytes((byte,)))] == expected
 
 
+def test_framing_evidence_tracks_each_yield_and_eof():
+    framer = TcpFramer()
+    assert framer.last_framing is None
+    frames = framer.feed(b"4 testline\nfinal")
+    assert next(frames) == b"test"
+    assert framer.last_framing == "octets"
+    assert next(frames) == b"line"
+    assert framer.last_framing == "delimiter"
+    assert list(frames) == []
+    assert framer.finish() == b"final"
+    assert framer.last_framing == "eof"
+
+
 def test_clean_eof_accepts_only_unterminated_line_frames():
     framer = TcpFramer()
     assert list(framer.feed(b"<14>final")) == []

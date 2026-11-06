@@ -1,6 +1,104 @@
 """German UI translations."""
 
 GERMAN_TRANSLATIONS = {
+    "This facility is not supported by the Linux logger trigger; send the message manually.":
+        "Diese Facility wird von der Linux-logger-Auslösung nicht unterstützt; die Nachricht manuell senden.",
+    "Use the destination port configured on the device, e.g. 514. Stop normal reception first if it uses the same port and protocol.":
+        "Den auf dem Gerät konfigurierten Zielport verwenden, z. B. 514. Den normalen Empfang vorher stoppen, wenn er denselben Port und dasselbe Protokoll verwendet.",
+    "SSH key warning: {warning}": "SSH-Schlüsselwarnung: {warning}",
+    "Could not save client check settings.": "Client-Prüfeinstellungen konnten nicht gespeichert werden.",
+    "Could not restore some client check settings; check the fields.":
+        "Einige Client-Prüfeinstellungen konnten nicht geladen werden; bitte die Felder prüfen.",
+    "Optional: pin a verified SHA256 fingerprint": "Optional: geprüften SHA256-Fingerabdruck festlegen",
+    "SSH fingerprint (optional):": "SSH-Fingerabdruck (optional):",
+    "Trust SSH host?": "SSH-Host vertrauen?",
+    "This SSH host is not known yet:\n{host}\n{algorithm}\n{fingerprint}":
+        "Dieser SSH-Host ist noch unbekannt:\n{host}\n{algorithm}\n{fingerprint}",
+    "Compare the fingerprint with the device through a trusted channel. Accept and remember this host? Changed keys will be blocked.":
+        "Den Fingerabdruck über einen vertrauenswürdigen Weg mit dem Gerät vergleichen. Diesen Host akzeptieren und merken? Geänderte Schlüssel werden blockiert.",
+    "SSH host key was not accepted.": "SSH-Hostschlüssel wurde nicht akzeptiert.",
+    "SSH runs Linux logger locally after the listener is ready. Configure syslog forwarding on the device yourself. Known SSH hosts are recognized automatically; new hosts require confirmation once. Changed host keys are rejected. Credentials are not saved. SSH cannot force your syslog daemon to reconnect.":
+        "SSH führt Linux logger lokal aus, sobald der Empfänger bereit ist. Die Syslog-Weiterleitung auf dem Gerät selbst konfigurieren. Bekannte SSH-Hosts werden automatisch erkannt; neue Hosts einmal bestätigen. Geänderte Hostschlüssel werden abgelehnt. Zugangsdaten werden nicht gespeichert. SSH kann den Syslog-Dienst nicht zur Wiederverbindung zwingen.",
+    "Empty: SSH agent and keys in ~/.ssh": "Leer: SSH-Agent und Schlüssel in ~/.ssh",
+    "Client checks…": "Client prüfen…",
+    "Syslog client checks": "Syslog-Client prüfen",
+    "UDP message": "UDP-Nachricht",
+    "TCP message and framing": "TCP-Nachricht und Framing",
+    "TCP reconnect (two connections)": "TCP-Wiederverbindung (zwei Verbindungen)",
+    "TLS positive control": "TLS-Positivtest",
+    "TLS: untrusted CA": "TLS: nicht vertrauenswürdige CA",
+    "TLS: wrong hostname": "TLS: falscher Hostname",
+    "TLS: expired certificate": "TLS: abgelaufenes Zertifikat",
+    "TLS: wrong certificate purpose": "TLS: falscher Zertifikatszweck",
+    "Test:": "Test:",
+    "Bind address:": "Abhöradresse:",
+    "Test port:": "Testport:",
+    "Client IPv4:": "Client-IPv4:",
+    "TLS server name:": "TLS-Servername:",
+    "Message format:": "Nachrichtenformat:",
+    "Expected facility:": "Erwartete Facility:",
+    "Expected severity:": "Erwarteter Schweregrad:",
+    "Timeout:": "Zeitlimit:",
+    "Send this text:": "Diesen Text senden:",
+    "Configure your client to send to this PC's test port. Send the exact token above inside a syslog message with the selected format and PRI. For reconnect, send it on two separate connections. In manual mode, no commands are run on the client.\nFor TLS, export and trust the temporary CA on the client, configure the server name above, then complete the positive control before negative tests. Keep client settings unchanged between TLS tests and reconnect for each test. TLS positive control requires octet-counted framing. Missing traffic is inconclusive.\nThe normal receiver is unchanged. This is a guided check, not official certification.":
+        "Den Client auf den Testport dieses PCs konfigurieren. Den obigen Prüftext unverändert in einer Syslog-Nachricht mit gewähltem Format und PRI senden. Beim Wiederverbindungstest auf zwei getrennten Verbindungen senden. Im manuellen Modus werden auf dem Client keine Befehle ausgeführt.\nFür TLS die temporäre CA exportieren und auf dem Client als vertrauenswürdig einrichten. Den obigen Servernamen konfigurieren und vor Negativtests den Positivtest abschließen. Die Client-Einstellungen zwischen TLS-Tests unverändert lassen und für jeden Test neu verbinden. Der TLS-Positivtest erfordert Octet-Counting-Framing. Fehlender Verkehr ist nicht eindeutig.\nDer normale Empfänger bleibt unverändert. Dies ist eine geführte Prüfung, keine offizielle Zertifizierung.",
+    "Trigger message via SSH (Linux logger)": "Nachricht per SSH auslösen (Linux logger)",
+    "SSH host:": "SSH-Host:",
+    "SSH port:": "SSH-Port:",
+    "SSH username:": "SSH-Benutzername:",
+    "SSH password / key passphrase:": "SSH-Passwort / Schlüsselpassphrase:",
+    "SSH private key file:": "SSH-Privatschlüsseldatei:",
+    "Verified SSH fingerprint:": "Geprüfter SSH-Fingerabdruck:",
+    "Send another message via SSH": "Weitere Nachricht per SSH senden",
+    "SSH runs Linux logger locally after the listener is ready. Configure syslog forwarding on the device yourself. Verify the host fingerprint independently (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256). Credentials are not saved. SSH cannot force your syslog daemon to reconnect.":
+        "SSH führt Linux logger lokal aus, sobald der Empfänger bereit ist. Die Syslog-Weiterleitung auf dem Gerät selbst konfigurieren. Den Host-Fingerabdruck unabhängig prüfen (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256). Zugangsdaten werden nicht gespeichert. SSH kann den Syslog-Dienst nicht zur Wiederverbindung zwingen.",
+    "SSH trigger failed: {error}": "SSH-Auslösung fehlgeschlagen: {error}",
+    "SSH logger completed; this does not prove syslog delivery.":
+        "SSH logger abgeschlossen; dies belegt noch keine Syslog-Zustellung.",
+    "SSH host, port and username are required.": "SSH-Host, Port und Benutzername sind erforderlich.",
+    "Enter the verified SSH SHA256 host-key fingerprint.":
+        "Den unabhängig geprüften SHA256-Fingerabdruck des SSH-Hostschlüssels eingeben.",
+    "Enter an SSH password or private key file.": "Ein SSH-Passwort oder eine Privatschlüsseldatei eingeben.",
+    "SSH trigger cancelled.": "SSH-Auslösung abgebrochen.",
+    "SSH logger command timed out.": "Zeitlimit für SSH logger überschritten.",
+    "Create test CA and export": "Test-CA erzeugen und exportieren",
+    "Start check": "Prüfung starten",
+    "Stop check": "Prüfung stoppen",
+    "Export report": "Bericht exportieren",
+    "Export test CA": "Test-CA exportieren",
+    "Trust this test CA on the client; remove it after testing.":
+        "Diese Test-CA auf dem Client als vertrauenswürdig einrichten; nach den Tests wieder entfernen.",
+    "Check error: {error}": "Prüffehler: {error}",
+    "Create and export a test CA for this server name first.":
+        "Zuerst eine Test-CA für diesen Servernamen erzeugen und exportieren.",
+    "Complete the TLS positive control with these settings first.":
+        "Zuerst den TLS-Positivtest mit diesen Einstellungen abschließen.",
+    "Starting isolated test listener…": "Separater Testempfänger wird gestartet…",
+    "Listening on test port {port}. Send the test message now.":
+        "Testport {port} ist bereit. Jetzt die Testnachricht senden.",
+    "Stopping check…": "Prüfung wird gestoppt…",
+    "passed": "bestanden",
+    "failed": "fehlgeschlagen",
+    "inconclusive": "nicht eindeutig",
+    "Test cancelled.": "Prüfung abgebrochen.",
+    "Client sent the test message despite an invalid certificate.":
+        "Der Client hat die Testnachricht trotz ungültigem Zertifikat gesendet.",
+    "Client returned a certificate-related TLS rejection alert.":
+        "Der Client hat einen zertifikatsbezogenen TLS-Ablehnungsalert zurückgegeben.",
+    "Test message failed the selected format, PRI, parser, or framing checks.":
+        "Die Testnachricht entspricht nicht den gewählten Format-, PRI-, Parser- oder Framing-Prüfungen.",
+    "Expected test message received.": "Erwartete Testnachricht empfangen.",
+    "Required evidence was not observed before timeout.":
+        "Die erforderlichen Nachweise wurden bis zum Zeitlimit nicht beobachtet.",
+    "Enter a valid DNS hostname or IPv4 address.":
+        "Einen gültigen DNS-Hostnamen oder eine IPv4-Adresse eingeben.",
+    "Unknown diagnostic case.": "Unbekannter Prüffall.",
+    "Invalid diagnostic port or timeout.": "Ungültiger Testport oder ungültiges Zeitlimit.",
+    "A test token and supported message format are required.":
+        "Ein Prüftext und ein unterstütztes Nachrichtenformat sind erforderlich.",
+    "Invalid expected facility or severity.": "Ungültige erwartete Facility oder ungültiger Schweregrad.",
+    "Complete the TLS positive control first.": "Zuerst den TLS-Positivtest abschließen.",
+    "A TLS test certificate is required.": "Ein TLS-Testzertifikat ist erforderlich.",
     "Average: {mean:.2f} matches/hour; standard deviation: {deviation:.2f} matches/hour.\nHourly intervals start at the displayed minimap range. Empty hours count; partial hours are time-weighted. This is variation, not a confidence interval.":
         "Durchschnitt: {mean:.2f} Treffer/Stunde; Standardabweichung: {deviation:.2f} Treffer/Stunde.\nStundenintervalle beginnen am angezeigten Minikartenzeitraum. Leere Stunden zählen; angebrochene Stunden werden zeitlich gewichtet. Dies ist eine Streuung, kein Konfidenzintervall.",
     "0.0.0.0 = all network interfaces; 127.0.0.1 = local only":

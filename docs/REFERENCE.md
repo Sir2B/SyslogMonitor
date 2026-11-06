@@ -87,6 +87,124 @@ the executable when it was first launched and a security prompt was dismissed or
 declined. The details dialog provides a command to remove those rules and add an allow
 rule (run it in an elevated PowerShell).
 
+## Guided syslog client checks
+
+Open **Client checks…** in the toolbar. The diagnostic listener uses a separate
+IPv4 port (default **18514**) and accepts only the specified client address. It
+does not change Settings, stop normal reception, write test messages into the
+database, install trusted certificates, or alter firewall rules. Allow the test
+port through the firewall separately if needed.
+
+The test port accepts **1–65535**, including **514** for devices with a fixed
+syslog destination port. If normal reception already uses the same port and
+protocol, stop **Receive** before starting the check, then restart reception after
+the test. The test does not stop or restart normal reception automatically.
+Use the device's configured **destination** port here, not its source port.
+
+The dialog remembers its test case, addresses, ports, message expectations and SSH
+connection fields when starting a check or closing. Passwords/passphrases, test
+tokens, temporary certificates, results and successful TLS controls are **not**
+restored. Reopening never starts a listener or SSH command automatically; generate
+a fresh test CA and complete a new positive control for TLS tests.
+
+1. Choose UDP, TCP, or a TLS scenario. Enter the sender's actual source IPv4 address
+   (as seen after any NAT), and the expected RFC 5424/3164 format, facility and severity.
+   Defaults are facility **16 / local0**, severity **6 / Info**.
+2. Configure the client to send to this PC's test port. Start the check, wait for
+   **Listening**, and send the displayed unique test text inside the message body.
+   UDP checks a received datagram. TCP checks a complete octet-counted or LF/NUL
+   delimited message; an unterminated message at EOF fails the framing check.
+   The reconnect test requires a matching message on **two separate connections**.
+3. For TLS, enter the exact DNS name or IPv4 address configured as the client's
+   server identity. **Create test CA and export**, then manually add the exported
+   public CA to the client's test trust store. No private key is exported by this
+   button. Keep the client's normal certificate and hostname checks enabled.
+4. First run **TLS positive control**, using octet-counted framing as required by
+   RFC 5425. Then run the individual negative scenarios: unrelated CA, mismatching
+   SAN, expired certificate, and client-auth-only EKU. Reconnect for every scenario
+   while keeping the client's trust/validation settings unchanged.
+5. **Export report** saves a JSON report with options, observations, results and
+   timestamps. Remove the test CA from the client when finished. Closing the dialog
+   cancels the listener and removes its temporary certificate/key files.
+
+Each check is bounded by the chosen timeout (5–300 seconds) and can be stopped.
+Changing the endpoint, client address, expected message settings or server name,
+or regenerating the test CA requires a new TLS positive control.
+
+### Optional SSH trigger (Linux)
+
+Enable **Trigger message via SSH (Linux logger)** and enter the SSH host, port,
+username, password or private key path. With an encrypted key, use the password
+field for its passphrase. Leave the key path empty to use the SSH agent and standard
+keys in your user directory's `.ssh` folder (`id_rsa`, `id_ecdsa`, `id_ed25519`).
+Password may also be left empty for unencrypted keys or agent authentication.
+An explicit key path disables automatic key/agent discovery and supports `~` and
+environment-variable expansion. Custom key filenames require an explicit path.
+OpenSSH `config` aliases and `IdentityFile` directives are not read.
+Private key types are detected from their contents rather than guessed from the
+filename; RSA, ECDSA (PEM/OpenSSH), and Ed25519 OpenSSH keys are supported.
+Legacy SEC1 ECDSA PEM keys with short private-value encodings are loaded **only in
+memory** using the cryptography library, with their derived public key checked
+against the encoded public key. The key file and its mathematical private value
+are not changed.
+Redundant leading zero bytes are accepted; validation uses the significant bit
+length, and genuinely oversized or mismatching private values remain rejected.
+Unreadable automatically discovered keys produce warnings in the dialog/report;
+other identities and password authentication can still be tried.
+The fingerprint field is **optional**. Existing entries in `~/.ssh/known_hosts`
+are recognized automatically (including hashed hostnames and nonstandard ports).
+New hosts display a confirmation with their SHA256 fingerprint; accepting remembers
+the public key in `%LOCALAPPDATA%\SyslogMonitor\ssh_known_hosts`, without modifying
+OpenSSH's file. Changed keys are blocked, not silently replaced. Confirmation times
+out after 30 seconds. An explicit fingerprint instead pins that exact key.
+Compare a new fingerprint independently; for example, inspect the actual server's public key on its console
+with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256`.
+Use the key type actually offered by that SSH server. No SSH credentials are saved in Settings
+or the report; the password is cleared when the dialog closes.
+
+After the test listener is ready, SSH runs
+`logger -p <facility>.<severity> -t syslog-monitor-check -- <test-token>` once, locally on
+the device. This tests the **existing syslog forwarding pipeline**, not a separate
+UDP/TLS sender. Configure the daemon's destination, protocol, trust and hostname
+validation yourself; no services are restarted and no device configuration changes
+are made. The command needs a Linux-compatible `logger` and permission to log.
+Other appliance-specific CLI commands are not supported in this first version.
+For example, the defaults use `logger -p local0.info`, avoiding differences in
+numeric-priority handling across logger implementations. Facilities 12–15 are
+not supported by the SSH trigger; test these by sending messages manually.
+Some systems remap `kern` from user-space logging to `user`, or rewrite priority
+in forwarding rules; such differences remain visible in the received evidence.
+
+**Send another message via SSH** triggers additional messages while the check runs.
+It does not reconnect the syslog daemon: for TCP reconnect and each TLS scenario,
+ensure the real daemon establishes the required new connection yourself.
+SSH success means only that `logger` exited successfully; receipt and TLS evidence
+still determine the check result. SSH failures are displayed, recorded without
+credentials, and cancel the running check. Stop/Close cancels SSH as well; connection,
+authentication and command operations use finite timeouts.
+
+### What a result means
+
+- **Passed, baseline:** the marker, expected format/PRI and basic parser checks
+  matched; TCP framing was complete. The TLS control additionally established a
+  TLS 1.2-or-newer session with the generated, matching server certificate.
+- **Passed, negative TLS test:** after a successful control, the client returned
+  a certificate-related TLS rejection alert. This demonstrates observed rejection,
+  **not proof of the exact validation rule**: clients can report generic certificate
+  alerts, and their internal configuration cannot be inspected.
+- **Failed:** a matching test message had unexpected format/PRI/parser/framing
+  evidence, or the client sent the marker over TLS despite the invalid certificate.
+- **Inconclusive:** no matching traffic, generic connection failure, timeout,
+  missing second connection, or cancellation. Silence is never treated as a pass.
+  Listener/configuration errors are displayed separately and included in the report.
+
+This is a guided conformity check, **not official certification or an exhaustive
+RFC validator**. The normal parser is deliberately tolerant; basic checks cannot
+prove complete RFC 3164/5424 compliance, UDP delivery guarantees, long-running
+reconnection behavior, mutual TLS, revocation checking or client security overall.
+The temporary CA and server certificates are valid for seven days (except the
+deliberately expired case); generate a new CA if that period elapses.
+
 ## Distribution (EXE / installer)
 
 Recipients do not need Python. To build, open PowerShell in the project directory:

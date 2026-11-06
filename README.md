@@ -33,6 +33,9 @@ display a warning.
 - **Explore the timeline**: click to jump to a time, or drag to zoom into a period.
 - **Highlight important text** with custom colors and optional notifications.
 - **Export logs** to CSV or JSONL, including a device's messages since its last reboot.
+- **Check a syslog client** with guided UDP/TCP and TLS certificate-validation tests
+  on a separate test port. Optionally trigger Linux log messages via SSH.
+  Export the results; this is not official certification.
 - **Make it yours**: light/dark mode, English/German, adjustable zoom, and show/hide columns.
 
 The first launch detects German from your system language; otherwise it uses English.

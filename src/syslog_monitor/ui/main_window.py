@@ -30,6 +30,7 @@ from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
 from syslog_monitor.ui.event_model import EventTableModel
 from syslog_monitor.ui.about_dialog import AboutDialog
+from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
 from syslog_monitor.ui.filter_bar import ALL_SEVERITIES, FilterBar
 from syslog_monitor.ui.firewall_status import Checker, FirewallMonitor
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self._watch_request: int | None = None
         self._rate_tracker = RateTracker()
         self._export_dialog: ExportDialog | None = None
+        self._diagnostics_dialog: DiagnosticsDialog | None = None
         app = QApplication.instance()
         if not isinstance(app, QApplication):
             raise RuntimeError("A QApplication is required to create the main window.")
@@ -192,6 +194,8 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self.open_settings)
         self.about_action = QAction(tr("About…"), self)
         self.about_action.triggered.connect(self.show_about)
+        self.diagnostics_action = QAction(tr("Client checks…"), self)
+        self.diagnostics_action.triggered.connect(self.open_diagnostics)
         self.export_action = QAction(tr("Export…"), self)
         self.export_action.triggered.connect(self.open_export)
         quit_action = QAction(tr("Quit"), self, shortcut=QKeySequence.Quit)
@@ -203,7 +207,7 @@ class MainWindow(QMainWindow):
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
         for item in (self.listen_action, self.live_action, None, refresh_action, None,
-                     self.export_action, settings_action, self.about_action, quit_action):
+                     self.export_action, settings_action, self.diagnostics_action, self.about_action, quit_action):
             if item is None:
                 toolbar.addSeparator()
             elif isinstance(item, QAction):
@@ -1184,6 +1188,16 @@ class MainWindow(QMainWindow):
     def show_about(self) -> None:
         AboutDialog(self).exec()
 
+    def open_diagnostics(self) -> None:
+        dialog = DiagnosticsDialog(self, ui_state=self._ui_state)
+        self._diagnostics_dialog = dialog
+        try:
+            dialog.exec()
+        finally:
+            dialog.shutdown()
+            self._diagnostics_dialog = None
+            dialog.deleteLater()
+
     # -------------------------------------------------------------- lifecycle
     def show_and_raise(self) -> None:
         self.showNormal()
@@ -1210,6 +1224,8 @@ class MainWindow(QMainWindow):
         """Stop timers and the query thread; the capture service is closed by the caller."""
         if self._export_dialog is not None:
             self._export_dialog.shutdown()
+        if self._diagnostics_dialog is not None:
+            self._diagnostics_dialog.shutdown()
         for timer in self._timers:
             timer.stop()
         self._highlight_timer.stop()

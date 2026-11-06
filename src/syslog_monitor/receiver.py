@@ -158,6 +158,12 @@ class TcpFramer:
         self._mode = "detect"
         self._scan_from = 0
         self._expected = 0
+        self._last_framing: str | None = None
+
+    @property
+    def last_framing(self) -> str | None:
+        """Framing of the most recently yielded message, for diagnostic evidence."""
+        return self._last_framing
 
     @property
     def pending(self) -> bool:
@@ -214,6 +220,7 @@ class TcpFramer:
                 message = bytes(self._buffer[:message_end])
                 del self._buffer[:end + 1]
 
+            self._last_framing = "octets" if self._mode == "octets" else "delimiter"
             self._mode = "detect"
             self._scan_from = 0
             self._expected = 0
@@ -228,6 +235,7 @@ class TcpFramer:
             raise TcpFramingError("message exceeds the TCP size limit")
         message = bytes(self._buffer)
         self._buffer.clear()
+        self._last_framing = "eof"
         return message
 
 
