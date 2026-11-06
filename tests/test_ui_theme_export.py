@@ -57,6 +57,40 @@ def test_settings_dialog_has_theme_and_preserves_other_settings(qtbot):
     assert dialog.result_settings() == replace(settings, theme="light")
 
 
+def test_embedded_settings_recover_after_invalid_input_without_closing(qtbot):
+    dialog = SettingsDialog(Settings(), embedded=True)
+    qtbot.addWidget(dialog)
+    applied = []
+    dialog.applied.connect(applied.append)
+    dialog.show()
+    dialog.host.setText("invalid")
+    dialog.accept()
+    assert dialog.error_label.text() and not applied
+    dialog.host.setText("127.0.0.1")
+    dialog.accept()
+    assert len(applied) == 1 and applied[0].bind_host == "127.0.0.1"
+    assert not dialog.error_label.text() and dialog.isVisible()
+    dialog.reject()
+    assert dialog.isVisible()
+
+
+@pytest.mark.parametrize("color", ["#202020", "#f0f0f0"])
+def test_navigation_icons_use_theme_and_selected_foreground(qapp, color):
+    from PySide6.QtGui import QIcon
+    from syslog_monitor.ui.icons import navigation_icon
+
+    palette = QPalette()
+    palette.setColor(QPalette.WindowText, QColor(color))
+    palette.setColor(QPalette.HighlightedText, QColor("#00aaff"))
+    for name in ("logs", "export", "validation", "settings", "about", "quit",
+                 "start", "stop", "expand", "collapse"):
+        icon = navigation_icon(name, palette)
+        for state, expected in ((QIcon.Off, color), (QIcon.On, "#00aaff")):
+            image = icon.pixmap(24, 24, QIcon.Normal, state).toImage()
+            assert any(image.pixelColor(x, y) == QColor(expected)
+                       for x in range(image.width()) for y in range(image.height())), (name, state)
+
+
 def test_dark_light_system_and_model_contrast(qtbot, restore_theme):
     app = QApplication.instance()
     apply_theme("system")
@@ -299,7 +333,8 @@ def test_export_cancel_file_picker_does_not_start_worker(qtbot, tmp_path, monkey
     assert dialog.export_button.isEnabled()
 
 
-def test_export_dialog_cancel_waits_for_worker(qtbot, tmp_path, monkeypatch):
+@pytest.mark.parametrize("embedded", [False, True])
+def test_export_dialog_cancel_waits_for_worker(qtbot, tmp_path, monkeypatch, embedded):
     from syslog_monitor.ui import export_dialog
     entered = Event()
     def wait_for_cancel(*args, cancel, **kwargs):
@@ -310,7 +345,7 @@ def test_export_dialog_cancel_waits_for_worker(qtbot, tmp_path, monkeypatch):
         raise ExportCancelled()
     monkeypatch.setattr(export_dialog, "export_events", wait_for_cancel)
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(tmp_path / "logs.csv"), ""))
-    dialog = ExportDialog(db_path(tmp_path), "boot", EventFilter())
+    dialog = ExportDialog(db_path(tmp_path), "boot", EventFilter(), embedded=embedded)
     qtbot.addWidget(dialog)
     dialog.show()
     try:
@@ -318,16 +353,15 @@ def test_export_dialog_cancel_waits_for_worker(qtbot, tmp_path, monkeypatch):
         qtbot.waitUntil(entered.is_set)
         dialog.reject()
         qtbot.waitUntil(lambda: dialog.worker is None)
-        assert not dialog.isVisible()
+        assert dialog.isVisible() == embedded
         assert "cancelled" in dialog.status.text()
     finally:
         dialog.shutdown()
 
 
 def test_window_loads_persisted_theme_and_applies_changes_without_restarting_listener(
-        qtbot, tmp_path, monkeypatch, restore_theme):
+        qtbot, tmp_path, restore_theme):
     import json
-    from syslog_monitor.ui import main_window
     path = tmp_path / "settings.json"
     save_settings(path, Settings(bind_host="127.0.0.1", theme="dark"))
     service = CaptureService(tmp_path / "data", load_settings(path))
@@ -340,28 +374,16 @@ def test_window_loads_persisted_theme_and_applies_changes_without_restarting_lis
         service.apply_settings(replace(service.settings, port=0))
         assert service.start_listener()
         original_port = service.bound_port
-        class FakeDialog:
-            def __init__(self, settings, parent):
-                self.settings = settings
-            def exec(self):
-                return True
-            def result_settings(self):
-                return replace(self.settings, theme="light")
-        monkeypatch.setattr(main_window, "SettingsDialog", FakeDialog)
-        window.open_settings()
+        window.apply_settings(replace(service.settings, theme="light"))
         assert not is_dark()
         assert service.bound_port == original_port and service.listening
         assert service.settings.theme == "light"
         assert json.loads(path.read_text())["theme"] == "light"
-        assert any(window.export_action in toolbar.actions()
-                   for toolbar in window.findChildren(main_window.QToolBar))
-        opened = []
-        monkeypatch.setattr(main_window.ExportDialog, "exec", lambda dialog: opened.append(dialog))
+        assert window.sidebar.buttons["export"].defaultAction() is window.export_action
         window.export_action.trigger()
-        assert len(opened) == 1
-        assert opened[0]._db_path == service.db_path
-        assert opened[0].period.currentData() == "boot"
-        assert window._export_dialog is None
+        assert window.current_page == "export"
+        assert window._export_dialog._db_path == service.db_path
+        assert window._export_dialog.period.currentData() == "boot"
     finally:
         window.shutdown()
         service.shutdown()

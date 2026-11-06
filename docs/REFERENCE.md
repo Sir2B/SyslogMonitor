@@ -89,7 +89,7 @@ rule (run it in an elevated PowerShell).
 
 ## Guided syslog client checks
 
-Open **Client checks…** in the toolbar. The diagnostic listener uses a separate
+Open **Client validation** in the left sidebar. The diagnostic listener uses a separate
 IPv4 port (default **18514**) and accepts only the specified client address. It
 does not change Settings, stop normal reception, write test messages into the
 database, install trusted certificates, or alter firewall rules. Allow the test
@@ -284,22 +284,23 @@ or the CI runner's temporary directory.
 | Control | Function |
 |---|---|
 | **Receive** | Toggle all enabled UDP, TCP, and TLS listeners. Previously stored data is retained. |
-| **Live** | New messages appear at the top. Pausing freezes only the view; receiving and storage continue. Scrolling down automatically pauses live updates. |
-| **Clear view** | Button beside the time range or **Ctrl+L**. Sets the custom range start to the current time and enables Live. The table, minimap, counters, and search then show only new messages, and the toolbar displays the start time. **No data is deleted.** Choose another range or uncheck “From” to show older messages again. |
+| **Navigation** | Expand/collapse the left sidebar for icons with titles or compact icons with tooltips. **Logs** is the startup page, followed by **Export** and **Client validation**. Reception, **Settings**, **About**, and **Quit** are at the bottom. The sidebar width choice is saved. Switching pages keeps form state and running export/validation jobs. |
+| **Autoscroll to newest** | New messages appear at the top. Turning autoscroll off freezes only the view; receiving and storage continue. Scrolling into history automatically disables autoscroll. **Go to latest / F5** jumps once without changing this option. |
+| **Clear view** | Button beside the time range or **Ctrl+L**. Opens Logs, sets the custom range start to the current time and enables autoscroll. The table, minimap, counters, and search then show only new messages, and the status bar displays the start time. **No data is deleted.** Choose another range or uncheck “From” to show older messages again. |
 | **Time range** | Above the minimap, beside “Reset zoom.” Choose 15 minutes through 30 days, “All,” or **“From / To…”**. Either date/time boundary is optional: From only shows messages from that time through now (including live updates); To only shows messages up to the selected time. To includes the displayed second. If From is later than To, the values are corrected automatically. Switching to a custom range uses the current range as its initial value. The range applies to the table, search, and minimap. The minimap fits the actual data range within the selected bounds. |
 | **Search** | Field below the filters. **Enter/F3** or “▼ Older” moves to the next older match; **Shift+F3** or “▲ Newer” moves to the next newer match. **Ctrl+F** focuses the field. Search starts at the newest match, selects the matching row, and shows surrounding messages even if they do not match the query. It searches beyond the currently loaded table page. Active filters and time range still apply; search does not affect the minimap. Searching pauses the view, but receiving and storage continue. At the end, “No more matches” is shown; results do not wrap around. |
 | **Severity** | Click a group in the colored legend to show only that group: Error, Warning, Info, Debug, or Unknown. Click the only selected group again or click “All” to reset the severity filter. Ctrl+click adds or removes groups. Info includes Notice and Info; Error includes Emergency through Error. Active groups are bold. Counts reflect the active filters. The severity menu also provides individual severities and presets. |
 | **Facility** | Separate selector, in addition to severity and text rules. |
 | **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Rules appear as compact summaries; click the pencil to edit a rule. Combine rules using AND or OR; non-matching messages are hidden. |
-| **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. Right-click the table to see these shortcuts in the context menu. Selecting multiple rows automatically pauses Live. |
+| **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. Right-click the table to see these shortcuts in the context menu. Selecting multiple rows automatically disables autoscroll. |
 | **Table columns** | Right-click the table header to show or hide columns. At least one column stays visible, and your selection is saved. |
 | **Zoom** | **Ctrl++** / **Ctrl+-** or **Ctrl+mouse wheel** zooms the interface from 75% to 200%; **Ctrl+0** resets to 100%. The zoom level is saved. |
 | **Language** | On first launch, the application detects German from the system locale and otherwise defaults to English. Choose English or German in **Settings > Language** to override it; changes take effect after restarting. |
-| **About** | Open **About…** from the toolbar for the app version, runtime details, license, and project links. |
+| **About** | Open **About** in the sidebar for the app version, runtime details, license, and project links. |
 | **Minimap** | Stacked bars per time bucket (red = errors, orange = warnings, etc.) with a red error strip above. The gray band marks the time span of the currently visible table rows and follows scrolling and resizing. With sparse data, the range is automatically narrowed and padded around existing messages. The displayed range appears in the header. **Click** to jump to a time. **Drag** to zoom to a selected range; “Reset zoom” restores automatic scaling. Tooltips show counts and milliseconds. |
 | **Details** | Shows all fields of the selected row, including raw data and parser notes. |
-| **F5** | Reload the current view and go to the latest messages matching the active filters and time range. |
-| **Close button** | Minimizes the window to the tray; receiving continues. Quit using the “Quit” menu item or tray menu. |
+| **F5** | Opens Logs, clears minimap zoom, reloads and goes to the latest messages matching the active filters and time range. Autoscroll stays unchanged. |
+| **Close button** | Minimizes the window to the tray; receiving continues. **Quit** in the sidebar (or Ctrl+Q) opens a page with separate minimize and quit actions. The tray menu can still quit directly. Without a tray, the minimize action minimizes to the taskbar. |
 
 ### Syslog reception
 
@@ -393,18 +394,22 @@ Existing highlight text is migrated as a purple rule when upgrading.
 
 **New-highlight popups:** For each highlight rule, enable “Popup” in its editor to show
 a Windows notification when a newly received message matches that rule, even if the
-window is minimized to the tray and regardless of filters or Live pause. Existing
+window is minimized to the tray and regardless of filters or autoscroll. Existing
 messages do not trigger a notification at startup. Notifications are grouped (at most
 one every 10 seconds) and include up to the three newest messages and the total count.
 Click a notification to open the window.
 
 ### Filters, table, and status
 
-The compact header contains the toolbar, filters on the left, highlights on the right,
+Newest/autoscroll controls form a separate group in the middle of the left sidebar.
+The Logs page starts directly with filters on the left, highlights on the right,
 search, and minimap. The filter and highlight panels scroll independently and have
 limited height so adding rules does not expand the header. The table below uses the
 full width. The minimap header includes the time range, “Clear view,” reset zoom,
 displayed range, and severity legend.
+
+About, Settings, Export, and Client validation use width-limited content aligned to the top left, rather than
+stretching across the entire page. Smaller windows scroll to keep all controls accessible.
 
 The status bar shows listener state, cumulative received/stored counts, queue size,
 storage usage, and a per-second live rate for received, stored, and dropped messages.
@@ -438,7 +443,7 @@ refreshing clears the selection.
 
 ### Export
 
-Use **Export...** in the toolbar to save **CSV** or **JSONL**. The period dropdown offers:
+Open **Export** in the sidebar to save **CSV** or **JSONL**. The period dropdown offers:
 
 - **Since last reboot (per sender)** (default): from the newest stored boot-marker
   message for each source IP, including that message. Configure **Settings > Boot marker**

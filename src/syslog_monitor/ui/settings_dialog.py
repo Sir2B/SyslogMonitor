@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from PySide6.QtCore import Qt, Signal
 
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
@@ -16,8 +17,13 @@ from syslog_monitor.ui.palette import status_color
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
+    applied = Signal(object)
+
+    def __init__(self, settings: Settings, parent: QWidget | None = None, *, embedded: bool = False) -> None:
         super().__init__(parent)
+        self._embedded = embedded
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
         self.setWindowTitle(tr("Settings"))
         self._original = settings
 
@@ -121,10 +127,12 @@ class SettingsDialog(QDialog):
         self.error_label.setWordWrap(True)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText(tr("OK"))
+        buttons.button(QDialogButtonBox.Ok).setText(tr("Apply settings") if embedded else tr("OK"))
         buttons.button(QDialogButtonBox.Cancel).setText(tr("Cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        if embedded:
+            buttons.button(QDialogButtonBox.Cancel).hide()
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -192,4 +200,12 @@ class SettingsDialog(QDialog):
         if errors:
             self.error_label.setText("\n".join(errors))
             return
-        super().accept()
+        self.error_label.clear()
+        if self._embedded:
+            self.applied.emit(settings)
+        else:
+            super().accept()
+
+    def reject(self) -> None:
+        if not self._embedded:
+            super().reject()

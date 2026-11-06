@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtCore import QDateTime, QThread, Signal
+from PySide6.QtCore import QDateTime, QThread, Signal, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDateTimeEdit, QDialog, QDialogButtonBox, QFileDialog,
@@ -56,8 +56,11 @@ class ExportThread(QThread):
 
 class ExportDialog(QDialog):
     def __init__(self, db_path: Path, boot_marker: str, filters: EventFilter,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, *, embedded: bool = False) -> None:
         super().__init__(parent)
+        self._embedded = embedded
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
         self.setWindowTitle(tr("Export messages"))
         self._db_path = db_path
         self._boot_marker = boot_marker
@@ -114,7 +117,7 @@ class ExportDialog(QDialog):
         layout.addWidget(self.status)
         layout.addWidget(self.buttons)
         self.period.currentIndexChanged.connect(self._period_changed)
-        self._period_changed()
+        self._set_running(False)
 
     def _period_changed(self) -> None:
         custom = self.period.currentData() == "custom"
@@ -153,6 +156,7 @@ class ExportDialog(QDialog):
         self.worker.start()
 
     def _set_running(self, running: bool) -> None:
+        self.buttons.button(QDialogButtonBox.Cancel).setEnabled(running or not self._embedded)
         for widget in (self.period, self.format, self.use_filters, self.columns_group, self.export_button):
             widget.setEnabled(not running)
         if running:
@@ -193,10 +197,10 @@ class ExportDialog(QDialog):
 
     def reject(self) -> None:
         if self.worker is not None:
-            self._closing = True
+            self._closing = not self._embedded
             self.status.setText(tr("Cancelling export…"))
             self.worker.cancel.set()
-        else:
+        elif not self._embedded:
             super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:

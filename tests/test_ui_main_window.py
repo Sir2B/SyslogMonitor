@@ -8,7 +8,7 @@ import pytest
 from conftest import BASE_MS, make_event, send_udp
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QTextDocument
-from PySide6.QtWidgets import QApplication, QToolBar
+from PySide6.QtWidgets import QApplication
 
 from syslog_monitor.config import Settings
 from syslog_monitor.service import CaptureService
@@ -41,16 +41,239 @@ def send(win, *messages: str):
 
 def test_client_checks_dialog_keeps_normal_receiver_unchanged(qtbot, window):
     original_port = window.service.bound_port
-    def close_dialog():
-        dialog = window._diagnostics_dialog
-        assert dialog is not None
-        assert window.service.bound_port == original_port
-        dialog.reject()
-    QTimer.singleShot(0, close_dialog)
     window.diagnostics_action.trigger()
-    assert window._diagnostics_dialog is None
+    dialog = window._diagnostics_dialog
+    assert dialog is not None
+    assert window.current_page == "validation"
+    assert window.service.bound_port == original_port
+    window.show_page("logs")
+    assert window._diagnostics_dialog is dialog
     send(window, "<134>Nov  6 00:00:00 client app: normal reception")
     qtbot.waitUntil(lambda: window.model.rowCount() == 1)
+
+
+def test_sidebar_navigation_is_compact_expandable_and_stateful(qtbot, window):
+    assert window.current_page == "logs"
+    assert list(window.sidebar.buttons) == [
+        "logs", "export", "validation", "latest", "autoscroll", "receive", "settings", "about", "quit"]
+    collapsed_width = window.sidebar.width()
+    compact_icon = window.sidebar.buttons["logs"].iconSize()
+    assert all(not button.icon().isNull() for button in window.sidebar.buttons.values())
+    assert window.sidebar.buttons["logs"].toolButtonStyle() == Qt.ToolButtonIconOnly
+    qtbot.mouseClick(window.sidebar.toggle, Qt.LeftButton)
+    qtbot.waitUntil(lambda: window.sidebar.width() > collapsed_width)
+    assert window.sidebar.buttons["logs"].iconSize().width() > compact_icon.width()
+    assert window.sidebar.buttons["logs"].toolButtonStyle() == Qt.ToolButtonTextBesideIcon
+    assert all(button.accessibleName() and button.toolTip()
+               for button in window.sidebar.buttons.values())
+    window._save_ui_state()
+    assert window._ui_state.value("sidebar_expanded") is True
+    window.sidebar.set_expanded(False)
+    window._ui_state.setValue("sidebar_expanded", True)
+    window._restore_ui_state()
+    assert window.sidebar.expanded
+    for name in ("export", "settings", "about", "validation", "quit", "logs"):
+        qtbot.mouseClick(window.sidebar.buttons[name], Qt.LeftButton)
+        assert window.current_page == name
+        assert window.pages.currentWidget() is window._pages[name]
+        assert window.sidebar.buttons[name].isChecked()
+        assert sum(window.sidebar.buttons[key].isChecked()
+                   for key in ("logs", "export", "settings", "about", "validation", "quit")) == 1
+    assert QApplication.activeModalWidget() is None
+
+
+def test_sidebar_stays_expanded_across_zoom_and_page_creation(qtbot, window):
+    rail = window.sidebar
+    try:
+        rail.set_expanded(True)
+        qtbot.waitUntil(lambda: rail.width() > 100)
+        expanded_width = rail.width()
+        window.zoom_controller.set_zoom(1.5)
+        window.show_page("about")
+        qtbot.waitUntil(lambda: rail.width() > expanded_width)
+        assert rail.buttons["logs"].iconSize().width() > 26
+        rail.set_expanded(False)
+        qtbot.waitUntil(lambda: rail.width() < expanded_width)
+        window.show_page("settings")
+        QApplication.processEvents()
+        assert rail.width() < expanded_width
+        window.focus_search()
+        assert window.current_page == "logs" and window.search_text.hasFocus()
+    finally:
+        window.zoom_controller.set_zoom(1.0)
+
+
+def test_log_controls_are_in_separate_middle_sidebar_group_without_top_toolbar(window):
+    from PySide6.QtWidgets import QToolBar
+
+    assert not window.findChildren(QToolBar)
+    assert window.sidebar.buttons["latest"].defaultAction() is window.latest_action
+    assert window.sidebar.buttons["autoscroll"].defaultAction() is window.live_action
+    layout = window.sidebar.widget().layout()
+    latest_index = layout.indexOf(window.sidebar.buttons["latest"])
+    autoscroll_index = layout.indexOf(window.sidebar.buttons["autoscroll"])
+    assert layout.itemAt(latest_index - 1).spacerItem() is not None
+    assert layout.itemAt(autoscroll_index + 1).spacerItem() is not None
+    assert window.log_page.layout().itemAt(0).widget() is window.rules_splitter
+    window.sidebar.buttons["autoscroll"].click()
+    assert not window._live
+    window.sidebar.buttons["latest"].click()
+    assert not window._live and window.current_page == "logs"
+
+
+def test_quit_page_distinguishes_minimize_and_exit(qtbot, window, monkeypatch):
+    exited = []
+    monkeypatch.setattr(window, "quit_application", lambda: exited.append(True))
+    window.sidebar.buttons["quit"].click()
+    assert window.current_page == "quit" and window.isVisible()
+    QApplication.processEvents()
+    minimize_position = window.minimize_button.mapTo(window, QPoint())
+    exit_position = window.exit_button.mapTo(window, QPoint())
+    assert minimize_position.y() == exit_position.y()
+    assert minimize_position.x() + window.minimize_button.width() < exit_position.x()
+    assert window.exit_button.height() >= 96
+    assert window.exit_button.width() < window.pages.width() / 2
+    assert "background: #b42318" in window.exit_button.styleSheet()
+    assert not exited
+    window.minimize_button.click()
+    qtbot.waitUntil(window.isMinimized)
+    assert window.service.listening and not exited
+    window.show_and_raise()
+    window.exit_button.click()
+    assert exited == [True]
+
+
+def test_about_and_settings_use_compact_top_left_content(qtbot, window):
+    from syslog_monitor.ui.about_dialog import AboutDialog
+
+    window.resize(1600, 1000)
+    window.show_page("about")
+    about = window._pages["about"].findChild(AboutDialog)
+    qtbot.waitUntil(lambda: about.isVisible())
+    QApplication.processEvents()
+    assert about.width() <= 640
+    assert about.height() < window.pages.height() / 2
+    assert about.pos().x() == 0 and about.pos().y() == 0
+    assert about.details_label.geometry().top() - about.version_label.geometry().bottom() < 30
+    window.show_page("settings")
+    settings = window._settings_page
+    QApplication.processEvents()
+    assert settings.width() <= 860
+    assert settings.pos().x() == 0 and settings.pos().y() == 0
+    assert settings.height() < settings.parentWidget().height()
+
+
+@pytest.mark.parametrize("name", ["export", "validation"])
+def test_export_and_validation_use_bounded_top_left_content(window, name):
+    window.resize(1600, 1000)
+    window.show_page(name)
+    dialog = window._export_dialog if name == "export" else window._diagnostics_dialog
+    QApplication.processEvents()
+    assert dialog.width() <= 1000
+    assert dialog.pos().x() == 0 and dialog.pos().y() == 0
+    assert dialog.isVisible()
+
+
+def test_embedded_validation_has_no_nested_form_scroll_area(window):
+    from PySide6.QtWidgets import QScrollArea
+
+    window.show_page("validation")
+    assert not window._diagnostics_dialog.findChildren(QScrollArea)
+    assert len(window._pages["validation"].findChildren(QScrollArea)) == 1
+
+
+def test_minimize_to_tray_keeps_receiver_running(window):
+    from types import SimpleNamespace
+
+    notifications = []
+    window.tray = SimpleNamespace(notify_hidden_once=lambda: notifications.append(True))
+    try:
+        window.show_page("quit")
+        window.minimize_button.click()
+        assert not window.isVisible()
+        assert window.service.listening and notifications == [True]
+    finally:
+        window.tray = None
+
+
+def test_sidebar_can_scroll_to_bottom_actions_in_small_windows(qtbot):
+    from PySide6.QtGui import QAction
+    from syslog_monitor.ui.navigation import NavigationRail
+
+    rail = NavigationRail()
+    qtbot.addWidget(rail)
+    for name in ("logs", "export", "validation", "receive", "settings", "about", "quit"):
+        rail.add_item(name, QAction(name, rail), page=name != "receive")
+    rail.resize(rail.sizeHint().width(), 200)
+    rail.show()
+    qtbot.waitUntil(lambda: rail.verticalScrollBar().maximum() > 0)
+    last = rail.buttons["quit"]
+    rail.ensureWidgetVisible(last)
+    qtbot.waitUntil(lambda: rail.viewport().rect().contains(last.mapTo(rail.viewport(), last.rect().center())))
+
+
+def test_validation_continues_across_navigation_and_settings_apply(qtbot, window):
+    window.show_page("validation")
+    dialog = window._diagnostics_dialog
+    dialog.host.setText("127.0.0.1")
+    dialog.client.setText("127.0.0.1")
+    dialog.ssh_enabled.setChecked(False)
+    dialog.port.setMinimum(0)
+    dialog.port.setValue(0)
+    dialog.start_check()
+    qtbot.waitUntil(lambda: "Listening" in dialog.status.text())
+    worker = dialog.worker
+    window.show_page("settings")
+    assert worker.isRunning() and not worker.cancel.is_set()
+    settings = window._settings_page
+    settings.theme.setCurrentIndex(settings.theme.findData("dark"))
+    test_port = window.service.bound_port
+    settings.port.setValue(test_port)
+    settings.accept()
+    assert window.service.settings.theme == "dark"
+    assert window.service.settings.port == test_port
+    assert window.current_page == "settings" and settings.isVisible()
+    settings.theme.setCurrentIndex(settings.theme.findData("system"))
+    settings.accept()
+    window.show_page("validation")
+    assert window._diagnostics_dialog is dialog
+    dialog.stop_check()
+    qtbot.waitUntil(lambda: dialog.worker is None)
+
+
+def test_export_page_keeps_options_and_refreshes_filter_context(window):
+    window.show_page("export")
+    dialog = window._export_dialog
+    dialog.format.setCurrentIndex(dialog.format.findData("jsonl"))
+    window.show_page("logs")
+    window.filter_bar.add_rule(FilterRule(value="router"))
+    window.show_page("export")
+    assert dialog is window._export_dialog
+    assert dialog.format.currentData() == "jsonl"
+    assert dialog._filters == window.filter_bar.current_filter()
+    dialog.reject()
+    assert dialog.isVisible()
+
+
+def test_go_to_latest_is_one_shot_and_autoscroll_is_independent(qtbot, window):
+    send(window, "<14>oldest", "<14>newest")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 2)
+    window.set_live(False)
+    window.show_page("about")
+    window.latest_action.trigger()
+    qtbot.waitUntil(lambda: window.current_page == "logs" and not window.queries.busy)
+    assert not window.live_action.isChecked()
+    assert window.model.row_at(0).message == "newest"
+    send(window, "<14>arrived while not following")
+    qtbot.wait(200)
+    assert window.model.rowCount() == 2
+    window.latest_action.trigger()
+    qtbot.waitUntil(lambda: window.model.rowCount() == 3)
+    assert not window.live_action.isChecked()
+    window.live_action.setChecked(True)
+    send(window, "<14>autoscrolled")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 4)
+    assert window.model.row_at(0).message == "autoscrolled"
 
 
 def test_time_controls_are_grouped_with_minimap(qtbot, window):
@@ -475,7 +698,7 @@ def test_scrolling_away_pauses_live_view(qtbot, window):
     qtbot.waitUntil(lambda: window.table.verticalScrollBar().maximum() >= 50)
     window.table.verticalScrollBar().setValue(50)
     assert not window.live_action.isChecked()
-    assert "PAUSED" in window.mode_label.text()
+    assert "Autoscroll off" in window.mode_label.text()
 
 
 def test_minimap_visible_range_tracks_table_scroll_resize_and_empty_view(qtbot, window, monkeypatch):
@@ -650,7 +873,7 @@ def test_zoom_shortcuts_and_factor_are_saved(qtbot, window):
     assert window.zoom_controller.factor == 1.0
 
 
-def test_about_toolbar_action_opens_dialog(qtbot, window, monkeypatch):
+def test_about_navigation_opens_embedded_page(qtbot, window, monkeypatch):
     from syslog_monitor.ui.about_dialog import AboutDialog
 
     opened = []
@@ -658,8 +881,12 @@ def test_about_toolbar_action_opens_dialog(qtbot, window, monkeypatch):
 
     window.about_action.trigger()
 
-    assert len(opened) == 1
-    assert opened[0].parentWidget() is window
+    assert not opened
+    assert window.current_page == "about"
+    dialog = window._pages["about"].findChild(AboutDialog)
+    assert dialog.isVisible()
+    qtbot.keyClick(dialog, Qt.Key_Escape)
+    assert dialog.isVisible()
 
 
 def test_stale_query_results_are_discarded(qtbot, tmp_path):
@@ -1020,12 +1247,12 @@ def test_mcp_status_details_and_settings(qtbot, tmp_path, monkeypatch):
                 return new
 
         monkeypatch.setattr(main_window_module, "SettingsDialog", FakeDialog)
-        win.open_settings()
+        win.apply_settings(new)
         assert not mcp.running and mcp.tools.boot_marker == "booted; started"
         assert "MCP off" in win.mcp_label.text()
 
         new = replace(new, mcp_enabled=True)
-        win.open_settings()
+        win.apply_settings(new)
         assert mcp.running and "MCP ✓" in win.mcp_label.text()
     finally:
         win.shutdown()
@@ -1126,7 +1353,7 @@ def test_gui_applies_tcp_settings_and_keeps_udp_running_on_error(qtbot, tmp_path
     monkeypatch.setattr(main_window_module, "SettingsDialog", FakeDialog)
     try:
         win.show()
-        win.open_settings()
+        win.apply_settings(new)
         assert load_settings(tmp_path / "settings.json") == new
         assert warnings and "TCP port" in warnings[0]
         assert service.bound_ports == {"UDP": udp_port}

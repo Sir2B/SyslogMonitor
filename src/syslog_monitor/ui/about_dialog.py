@@ -12,13 +12,18 @@ from syslog_monitor.i18n import tr
 
 
 class AboutDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, embedded: bool = False) -> None:
         super().__init__(parent)
+        self._embedded = embedded
         self.setWindowTitle(tr("About {name}", name=APP_DISPLAY_NAME))
         self.setWindowModality(Qt.WindowModal)
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
+            self.setWindowModality(Qt.NonModal)
 
         self.version_label = QLabel(f"<h2>{APP_DISPLAY_NAME}</h2><p>{tr('Version {version}', version=__version__)}</p>")
         self.version_label.setTextFormat(Qt.RichText)
+        self.version_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.details_label = QLabel(
             f"<p>{tr('Receive syslog messages over UDP, TCP, and TLS. Store, search, filter, and inspect messages locally.')}</p>"
             f"<p>{tr('Copyright © 2026 Tobias Obermayer · MIT License')}<br>"
@@ -27,6 +32,7 @@ class AboutDialog(QDialog):
             '&nbsp;·&nbsp;'
             f'<a href="https://github.com/Sir2B/SyslogMonitor/issues">{tr("Report an issue")}</a>')
         self.details_label.setTextFormat(Qt.RichText)
+        self.details_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.details_label.setWordWrap(True)
         self.details_label.setOpenExternalLinks(True)
 
@@ -36,3 +42,9 @@ class AboutDialog(QDialog):
         layout.addWidget(self.version_label)
         layout.addWidget(self.details_label)
         layout.addWidget(buttons)
+        if embedded:
+            buttons.hide()
+
+    def reject(self) -> None:
+        if not self._embedded:
+            super().reject()

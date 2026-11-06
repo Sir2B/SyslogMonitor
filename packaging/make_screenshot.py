@@ -31,8 +31,6 @@ from syslog_monitor.query import HighlightRule  # noqa: E402
 from syslog_monitor.service import CaptureService  # noqa: E402
 from syslog_monitor.storage import EventStore  # noqa: E402
 from syslog_monitor.ui.main_window import MainWindow  # noqa: E402
-from syslog_monitor.ui.export_dialog import ExportDialog  # noqa: E402
-from syslog_monitor.ui.settings_dialog import SettingsDialog  # noqa: E402
 
 HOUR_MS = 3_600_000
 SPAN_MS = 20 * HOUR_MS  # inside the default "24 hours" range
@@ -181,14 +179,8 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
                 header = window.table.horizontalHeader()
                 overlay.popup(header.mapToGlobal(QPoint(220, header.height())))
             elif view in ("settings", "export"):
-                overlay = (SettingsDialog(Settings(theme=theme), window) if view == "settings"
-                           else ExportDialog(service.db_path, service.settings.boot_marker,
-                                             window.filter_bar.current_filter(), window))
-                overlay.show()
-                overlay.adjustSize()
-                overlay.move(window.mapToGlobal(QPoint(
-                    (window.width() - overlay.width()) // 2,
-                    (window.height() - overlay.height()) // 2)))
+                window.sidebar.set_expanded(True)
+                window.show_page(view)
             for _ in range(20):
                 app.processEvents()
                 time.sleep(0.02)

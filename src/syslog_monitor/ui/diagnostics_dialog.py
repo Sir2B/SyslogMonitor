@@ -93,8 +93,11 @@ class SshThread(QThread):
 
 
 class DiagnosticsDialog(QDialog):
-    def __init__(self, parent=None, *, ui_state: QSettings | None = None):
+    def __init__(self, parent=None, *, ui_state: QSettings | None = None, embedded: bool = False):
         super().__init__(parent)
+        self._embedded = embedded
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
         self._ui_state = ui_state if ui_state is not None else QSettings("SyslogMonitor", "ClientChecks")
         self.setWindowTitle(tr("Syslog client checks"))
         self._temporary = tempfile.TemporaryDirectory(prefix="syslog-client-check-")
@@ -178,6 +181,8 @@ class DiagnosticsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.button(QDialogButtonBox.Close).setText(tr("Close"))
         buttons.rejected.connect(self.reject)
+        if embedded:
+            buttons.hide()
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.addWidget(self.instructions)
@@ -185,10 +190,13 @@ class DiagnosticsDialog(QDialog):
         content_layout.addWidget(ssh_hint)
         content_layout.addWidget(self.ssh_send)
         content_layout.addWidget(self.ca_button)
-        scroll = QScrollArea(widgetResizable=True)
-        scroll.setWidget(content)
         layout = QVBoxLayout(self)
-        layout.addWidget(scroll, 3)
+        if embedded:
+            layout.addWidget(content)
+        else:
+            scroll = QScrollArea(widgetResizable=True)
+            scroll.setWidget(content)
+            layout.addWidget(scroll, 3)
         actions = QHBoxLayout()
         for widget in (self.start_button, self.stop_button, self.report_button):
             actions.addWidget(widget)
@@ -477,5 +485,7 @@ class DiagnosticsDialog(QDialog):
         self.ssh_password.clear()
 
     def reject(self) -> None:
+        if self._embedded:
+            return
         self.shutdown()
         super().reject()

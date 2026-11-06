@@ -1,6 +1,32 @@
 """German UI translations."""
 
 GERMAN_TRANSLATIONS = {
+    "Choose minimize or quit (Ctrl+Q)": "Minimieren oder Beenden auswählen (Strg+Q)",
+    "Minimize or quit": "Minimieren oder beenden",
+    "Minimize to tray": "In den Infobereich minimieren",
+    "Minimize window": "Fenster minimieren",
+    "Quit application": "Anwendung beenden",
+    "Receiving, storage and running jobs continue.": "Empfang, Speicherung und laufende Aufgaben laufen weiter.",
+    "Stops receiving and running jobs, then closes the application.":
+        "Stoppt den Empfang und laufende Aufgaben und schließt anschließend die Anwendung.",
+    "Autoscroll on": "Autoscroll an",
+    "Autoscroll off": "Autoscroll aus",
+    "Start receiving": "Empfang starten",
+    "Stop receiving": "Empfang stoppen",
+    "Autoscroll is off; receiving and storage continue.\nUse “Go to latest” once or enable autoscroll.":
+        "Autoscroll ist aus; Empfang und Speicherung laufen weiter.\nEinmal „Zum neuesten Eintrag“ verwenden oder Autoscroll aktivieren.",
+    "Logs": "Logs",
+    "Export": "Export",
+    "Client validation": "Clientprüfung",
+    "About": "Über",
+    "Autoscroll to newest": "Automatisch zum neuesten Eintrag",
+    "Follow new messages. Scrolling into history turns autoscroll off.\nReceiving and storage continue when autoscroll is off.":
+        "Neuen Nachrichten folgen. Beim Scrollen in die Historie wird Autoscroll ausgeschaltet.\nEmpfang und Speicherung laufen ohne Autoscroll weiter.",
+    "Jump to the newest matching messages once (F5). Autoscroll stays unchanged.":
+        "Einmal zum neuesten passenden Eintrag springen (F5). Autoscroll bleibt unverändert.",
+    "Expand sidebar": "Seitenleiste ausklappen",
+    "Collapse sidebar": "Seitenleiste einklappen",
+    "Apply settings": "Einstellungen übernehmen",
     "This facility is not supported by the Linux logger trigger; send the message manually.":
         "Diese Facility wird von der Linux-logger-Auslösung nicht unterstützt; die Nachricht manuell senden.",
     "Use the destination port configured on the device, e.g. 514. Stop normal reception first if it uses the same port and protocol.":

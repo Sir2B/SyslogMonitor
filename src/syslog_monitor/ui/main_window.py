@@ -12,8 +12,8 @@ from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableView, QToolBar,
-    QMenu, QToolButton, QVBoxLayout, QWidget,
+    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableView,
+    QMenu, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from syslog_monitor import APP_DISPLAY_NAME
@@ -39,6 +39,7 @@ from syslog_monitor.ui.highlight_alerts import MAX_LISTED, MIN_INTERVAL_S, Highl
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.icons import app_icon
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
+from syslog_monitor.ui.navigation import NavigationRail
 from syslog_monitor.ui.palette import apply_theme, is_dark, status_color
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.ui.settings_dialog import SettingsDialog
@@ -114,6 +115,9 @@ class MainWindow(QMainWindow):
         self._rate_tracker = RateTracker()
         self._export_dialog: ExportDialog | None = None
         self._diagnostics_dialog: DiagnosticsDialog | None = None
+        self._settings_page: SettingsDialog | None = None
+        self._pages: dict[str, QWidget] = {}
+        self.current_page = "logs"
         app = QApplication.instance()
         if not isinstance(app, QApplication):
             raise RuntimeError("A QApplication is required to create the main window.")
@@ -155,14 +159,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI setup
     def _build_ui(self) -> None:
-        toolbar = QToolBar(tr("Controls"), objectName="main_toolbar", movable=False)
-        self.addToolBar(toolbar)
         self.listen_action = QAction(tr("Receive"), self, checkable=True)
         self.listen_action.setToolTip(tr("Start/stop the enabled UDP, TCP and TLS listeners"))
         self.listen_action.triggered.connect(self._toggle_listener)
-        self.live_action = QAction(tr("● Live"), self, checkable=True, checked=True)
-        self.live_action.setToolTip(tr("Live: automatically show the newest messages.\n"
-                                       "Off: pause the view; receiving and storage continue."))
+        self.live_action = QAction(tr("Autoscroll to newest"), self, checkable=True, checked=True)
+        self.live_action.setToolTip(tr("Follow new messages. Scrolling into history turns autoscroll off.\n"
+                                      "Receiving and storage continue when autoscroll is off."))
         self.live_action.toggled.connect(self.set_live)
         self.range_combo = QComboBox()
         for label, _ in RANGE_PRESETS:
@@ -190,30 +192,23 @@ class MainWindow(QMainWindow):
             tr("Show only messages from now on (Ctrl+L) by setting “From” to the current time.\n"
                "Nothing is deleted. Choose another range or uncheck “From” to show older messages again."))
         self.clear_view_action.triggered.connect(self.clear_view)
-        settings_action = QAction(tr("Settings…"), self)
-        settings_action.triggered.connect(self.open_settings)
-        self.about_action = QAction(tr("About…"), self)
+        self.settings_action = QAction(tr("Settings"), self)
+        self.settings_action.triggered.connect(self.open_settings)
+        self.about_action = QAction(tr("About"), self)
         self.about_action.triggered.connect(self.show_about)
-        self.diagnostics_action = QAction(tr("Client checks…"), self)
+        self.diagnostics_action = QAction(tr("Client validation"), self)
         self.diagnostics_action.triggered.connect(self.open_diagnostics)
-        self.export_action = QAction(tr("Export…"), self)
+        self.export_action = QAction(tr("Export"), self)
         self.export_action.triggered.connect(self.open_export)
         quit_action = QAction(tr("Quit"), self, shortcut=QKeySequence.Quit)
-        quit_action.setToolTip(tr("Quit the application (Ctrl+Q)"))
-        quit_action.triggered.connect(self.quit_application)
-        refresh_action = QAction(tr("Go to latest"), self, shortcut=QKeySequence.Refresh)
-        refresh_action.setToolTip(tr("Go to the newest matching messages (F5)"))
-        refresh_action.triggered.connect(self.refresh_all)
+        quit_action.setToolTip(tr("Choose minimize or quit (Ctrl+Q)"))
+        quit_action.triggered.connect(lambda: self.show_page("quit"))
+        self.latest_action = QAction(tr("Go to latest"), self, shortcut=QKeySequence.Refresh)
+        self.latest_action.setToolTip(tr("Jump to the newest matching messages once (F5). Autoscroll stays unchanged."))
+        self.latest_action.triggered.connect(self.go_to_latest)
+        self.addActions([quit_action, self.latest_action, self.clear_view_action])
         self.mode_label = QLabel()
         self.mode_label.setTextFormat(Qt.RichText)
-        for item in (self.listen_action, self.live_action, None, refresh_action, None,
-                     self.export_action, settings_action, self.diagnostics_action, self.about_action, quit_action):
-            if item is None:
-                toolbar.addSeparator()
-            elif isinstance(item, QAction):
-                toolbar.addAction(item)
-            else:
-                toolbar.addWidget(item)
 
         self.filter_bar = FilterBar()
         self.filter_bar.changed.connect(self.refresh_all)
@@ -244,7 +239,7 @@ class MainWindow(QMainWindow):
             search_row.addWidget(widget)
         search_row.setStretch(1, 3)
         focus_search = QAction(self, shortcut=QKeySequence.Find)
-        focus_search.triggered.connect(lambda: self.search_text.setFocus())
+        focus_search.triggered.connect(self.focus_search)
         self.addAction(focus_search)
         for shortcut, newer in (("F3", False), ("Shift+F3", True)):
             action = QAction(self, shortcut=QKeySequence(shortcut))
@@ -385,7 +380,37 @@ class MainWindow(QMainWindow):
         layout.addLayout(search_row)
         layout.addWidget(minimap_section)
         layout.addWidget(self.splitter, 1)
-        self.setCentralWidget(central)
+        self.log_page = central
+        self.pages = QStackedWidget()
+        self.pages.addWidget(central)
+        self._pages["logs"] = central
+        self.sidebar = NavigationRail()
+        self.logs_action = QAction(tr("Logs"), self)
+        self.logs_action.triggered.connect(lambda: self.show_page("logs"))
+        for name, action in (
+            ("logs", self.logs_action),
+            ("export", self.export_action),
+            ("validation", self.diagnostics_action),
+        ):
+            self.sidebar.add_item(name, action)
+        self.sidebar.add_stretch()
+        self.sidebar.add_item("latest", self.latest_action, page=False)
+        self.sidebar.add_item("autoscroll", self.live_action, page=False)
+        self.sidebar.add_stretch()
+        self.sidebar.add_item("receive", self.listen_action, page=False)
+        self.sidebar.add_item("settings", self.settings_action)
+        self.sidebar.add_item("about", self.about_action)
+        self.sidebar.add_item("quit", quit_action)
+        self.logs_action.setChecked(True)
+        self.sidebar.expanded_changed.connect(
+            lambda value: self._ui_state.setValue("sidebar_expanded", value))
+        shell = QWidget()
+        shell_layout = QHBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.sidebar)
+        shell_layout.addWidget(self.pages, 1)
+        self.setCentralWidget(shell)
 
         self.listener_label = QLabel()
         self.firewall_label = QLabel()
@@ -421,6 +446,10 @@ class MainWindow(QMainWindow):
         self._update_status()
         self.statusBar().showMessage(
             f"Zoom: {factor:.0%} (Ctrl+0 to reset)", 2500)
+
+    def focus_search(self) -> None:
+        self.show_page("logs")
+        self.search_text.setFocus()
 
     def _show_column_menu(self, position) -> None:
         header = self.table.horizontalHeader()
@@ -768,6 +797,7 @@ class MainWindow(QMainWindow):
         self._request_histogram()
 
     def find_text(self, *, newer: bool = False) -> None:
+        self.show_page("logs")
         text = self.search_text.text().strip()
         if not text:
             return
@@ -807,6 +837,7 @@ class MainWindow(QMainWindow):
         if live:
             self._zoom = None
             self.reset_zoom_action.setEnabled(False)
+            self._update_mode_label()
             self.refresh_all()
         else:
             self._persisted_at_pause = self.service.snapshot().persisted
@@ -899,6 +930,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def clear_view(self) -> None:
         """Show only rows received from now on; storage is untouched."""
+        self.show_page("logs")
         self._set_custom(_now_ms(), None)
         self.range_combo.blockSignals(True)
         self.range_combo.setCurrentIndex(CUSTOM_RANGE_INDEX)
@@ -912,11 +944,11 @@ class MainWindow(QMainWindow):
 
     def _update_mode_label(self) -> None:
         if self._live:
-            text = f"&nbsp;<b style='color:{status_color('#1a7f37')}'>● LIVE</b>"
+            text = f"&nbsp;<b style='color:{status_color('#1a7f37')}'>● {tr('Autoscroll on')}</b>"
             tip = tr("The newest messages appear at the top.")
         else:
-            text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ PAUSED</b>"
-            tip = tr("View paused; receiving and storage continue.\nSelect “Live” to show the newest messages again.")
+            text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ {tr('Autoscroll off')}</b>"
+            tip = tr("Autoscroll is off; receiving and storage continue.\nUse “Go to latest” once or enable autoscroll.")
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
             tip += f"\nZoom: {format_ts(self._zoom[0])[:19]} – {format_ts(self._zoom[1])[:19]}"
@@ -1015,7 +1047,7 @@ class MainWindow(QMainWindow):
     def _show_listener_state(self, snap: StatsSnapshot) -> None:
         listening = self.service.listening
         self.listen_action.setChecked(listening)
-        self.listen_action.setText(tr("■ Stop receiving") if listening else tr("▶ Start receiving"))
+        self.listen_action.setText(tr("Stop receiving") if listening else tr("Start receiving"))
         if snap.listener_state == "error":
             text = f"<b style='color:{status_color('#b00020')}'>{snap.listener_error}</b>"
             if listening:
@@ -1136,24 +1168,113 @@ class MainWindow(QMainWindow):
             QApplication.clipboard().setText(snippet)
 
     # --------------------------------------------------------------- settings
+    def show_page(self, name: str) -> None:
+        if name not in ("logs", "export", "validation", "settings", "about", "quit"):
+            raise ValueError(f"Unknown page: {name}")
+        if name not in self._pages:
+            if name == "export":
+                dialog = ExportDialog(self.service.db_path, self.service.settings.boot_marker,
+                                      self.filter_bar.current_filter(), self, embedded=True)
+                self._export_dialog = dialog
+            elif name == "validation":
+                dialog = DiagnosticsDialog(self, ui_state=self._ui_state, embedded=True)
+                self._diagnostics_dialog = dialog
+            elif name == "settings":
+                dialog = SettingsDialog(self.service.settings, self, embedded=True)
+                self._settings_page = dialog
+                dialog.applied.connect(self.apply_settings)
+            elif name == "about":
+                dialog = AboutDialog(self, embedded=True)
+            else:
+                dialog = QWidget()
+                dialog.setWindowTitle(tr("Minimize or quit"))
+                choices = QVBoxLayout(dialog)
+                cards = QWidget()
+                cards.setMaximumWidth(620)
+                cards_layout = QHBoxLayout(cards)
+                cards_layout.setContentsMargins(0, 0, 0, 0)
+                cards_layout.setSpacing(20)
+                self.minimize_button = QPushButton(
+                    tr("Minimize to tray") if self.tray else tr("Minimize window"))
+                self.minimize_button.clicked.connect(self.minimize_application)
+                minimize_hint = QLabel(tr("Receiving, storage and running jobs continue."))
+                minimize_hint.setWordWrap(True)
+                self.exit_button = QPushButton(tr("Quit application"))
+                self.exit_button.clicked.connect(self.quit_application)
+                self.exit_button.setStyleSheet(
+                    "QPushButton { background: #b42318; color: white; border: 1px solid #b42318; "
+                    "border-radius: 8px; padding: 12px; }"
+                    "QPushButton:hover { background: #912018; }"
+                    "QPushButton:pressed { background: #731912; }"
+                    "QPushButton:focus { border: 3px solid palette(highlight); }")
+                quit_hint = QLabel(tr("Stops receiving and running jobs, then closes the application."))
+                quit_hint.setWordWrap(True)
+                for button, hint in ((self.minimize_button, minimize_hint), (self.exit_button, quit_hint)):
+                    button.setMinimumHeight(96)
+                    button.setMinimumWidth(button.sizeHint().width())
+                    font = button.font()
+                    font.setBold(True)
+                    button.setFont(font)
+                    card = QWidget()
+                    card_layout = QVBoxLayout(card)
+                    card_layout.setContentsMargins(0, 0, 0, 0)
+                    card_layout.setSpacing(12)
+                    card_layout.addWidget(button)
+                    card_layout.addWidget(hint)
+                    card_layout.addStretch(1)
+                    cards_layout.addWidget(card, 1)
+                choices.addWidget(cards)
+                choices.addStretch(1)
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            title = QLabel(dialog.windowTitle())
+            title.setTextFormat(Qt.PlainText)
+            font = title.font()
+            font.setPointSizeF(font.pointSizeF() * 1.4)
+            font.setBold(True)
+            title.setFont(font)
+            page_layout.addWidget(title)
+            scroll = QScrollArea(widgetResizable=True)
+            scroll.setFrameShape(QScrollArea.NoFrame)
+            content_widths = {"about": 640, "settings": 860, "export": 1000, "validation": 1000}
+            if name in content_widths:
+                dialog.setMaximumWidth(content_widths[name])
+                content = QWidget()
+                content_layout = QVBoxLayout(content)
+                content_layout.setContentsMargins(0, 0, 0, 0)
+                content_layout.addWidget(dialog)
+                content_layout.setAlignment(dialog, Qt.AlignTop)
+                content_layout.addStretch(1)
+                scroll.setWidget(content)
+            else:
+                scroll.setWidget(dialog)
+            page_layout.addWidget(scroll, 1)
+            self._pages[name] = page
+            self.pages.addWidget(page)
+        if name == "export" and self._export_dialog is not None and self._export_dialog.worker is None:
+            self._export_dialog._filters = self.filter_bar.current_filter()
+            self._export_dialog._boot_marker = self.service.settings.boot_marker
+        self.current_page = name
+        self.pages.setCurrentWidget(self._pages[name])
+        for key in ("logs", "export", "validation", "settings", "about", "quit"):
+            self.sidebar.buttons[key].defaultAction().setChecked(key == name)
+
+    @Slot()
+    def go_to_latest(self) -> None:
+        self.show_page("logs")
+        self._zoom = None
+        self.reset_zoom_action.setEnabled(False)
+        self.refresh_all()
+
     @Slot()
     def open_export(self) -> None:
-        dialog = ExportDialog(self.service.db_path, self.service.settings.boot_marker,
-                              self.filter_bar.current_filter(), self)
-        self._export_dialog = dialog
-        try:
-            dialog.exec()
-        finally:
-            dialog.shutdown()
-            self._export_dialog = None
-            dialog.deleteLater()
+        self.show_page("export")
 
     @Slot()
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.service.settings, self)
-        if not dialog.exec():
-            return
-        new: Settings = dialog.result_settings()
+        self.show_page("settings")
+
+    def apply_settings(self, new: Settings) -> None:
         old = self.service.settings
         try:
             save_settings(self._settings_path, new)
@@ -1186,19 +1307,21 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def show_about(self) -> None:
-        AboutDialog(self).exec()
+        self.show_page("about")
 
     def open_diagnostics(self) -> None:
-        dialog = DiagnosticsDialog(self, ui_state=self._ui_state)
-        self._diagnostics_dialog = dialog
-        try:
-            dialog.exec()
-        finally:
-            dialog.shutdown()
-            self._diagnostics_dialog = None
-            dialog.deleteLater()
+        self.show_page("validation")
 
     # -------------------------------------------------------------- lifecycle
+    @Slot()
+    def minimize_application(self) -> None:
+        self._save_ui_state()
+        if self.tray:
+            self.hide()
+            self.tray.notify_hidden_once()
+        else:
+            self.showMinimized()
+
     def show_and_raise(self) -> None:
         self.showNormal()
         self.raise_()
@@ -1244,6 +1367,7 @@ class MainWindow(QMainWindow):
         s.setValue("visible_columns", json.dumps([
             not self.table.isColumnHidden(index) for index in range(self.model.columnCount())]))
         s.setValue("zoom", self.zoom_controller.factor)
+        s.setValue("sidebar_expanded", self.sidebar.expanded)
         s.setValue("range_index", self.range_combo.currentIndex())
         custom = self.custom_bounds() or (None, None)
         s.setValue("range_from", "" if custom[0] is None else str(custom[0]))
@@ -1254,6 +1378,7 @@ class MainWindow(QMainWindow):
 
     def _restore_ui_state(self) -> None:
         s = self._ui_state
+        self.sidebar.set_expanded(str(s.value("sidebar_expanded", False)).lower() == "true")
         stored_rules = s.value("highlight_rules")
         legacy_popup = str(s.value("highlight_popup", True)).lower() not in ("false", "0")
         try:
