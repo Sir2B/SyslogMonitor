@@ -252,8 +252,8 @@ Pushing a `v*` tag runs `.github/workflows/release.yml` on Windows. The workflow
 and builds the tagged source with `packaging/build.ps1`, creates the GitHub release, and
 attaches both the installer and the portable ZIP described above. It also renders the main
 window with deterministic demo traffic (`packaging/make_screenshot.py`), uploads
-`screenshot.png`, and embeds it in the release notes. The README image shows the latest
-release's screenshot; none of these generated files need to be committed to Git.
+`screenshot.png`, and embeds it in the release notes. The README gallery shows the latest
+release's screenshots; none of these generated files need to be committed to Git.
 
 Before creating a tag, set the same version in `pyproject.toml` and
 `src/syslog_monitor/__init__.py` (for example, `1.2.3` for tag `v1.2.3`). The workflow

@@ -10,7 +10,20 @@ A simple Windows GUI tool for receiving and browsing syslog messages.
 Keep an eye on routers, switches, servers, and other devices in one place.
 Search logs, spot errors on a timeline, and highlight messages that matter.
 
-![Syslog Monitor main window](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot.png)
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-light.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-light.png" alt="Syslog Monitor main window" width="280"></a><br><sub>Logs</sub></td>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-dark.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-dark.png" alt="Syslog Monitor in dark mode" width="280"></a><br><sub>Dark mode</sub></td>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-highlights.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-highlights.png" alt="Edit a highlight rule" width="280"></a><br><sub>Highlights</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-columns.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-columns.png" alt="Show or hide columns" width="280"></a><br><sub>Columns</sub></td>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-settings.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-settings.png" alt="Listener and appearance settings" width="280"></a><br><sub>Settings</sub></td>
+    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-export.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-export.png" alt="Export messages" width="280"></a><br><sub>Export</sub></td>
+  </tr>
+</table>
+
+<sub>Click an image to enlarge it.</sub>
 
 ## Get started
 
@@ -81,33 +94,6 @@ The middle of the sidebar contains a separate **Go to latest** / **Autoscroll to
 
 Closing the window keeps reception running in the system tray. Use **Quit** to exit.
 Your layout, filters, column visibility, and zoom are saved.
-
-## Screenshots
-
-<details>
-<summary>Dark mode</summary>
-
-![Syslog Monitor in dark mode](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-dark.png)
-
-</details>
-
-<details>
-<summary>Column menu and highlight options</summary>
-
-![Show or hide columns](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-columns.png)
-
-![Edit a highlight rule](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-highlights.png)
-
-</details>
-
-<details>
-<summary>Settings and export</summary>
-
-![Listener and appearance settings](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-settings.png)
-
-![Export messages](https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-export.png)
-
-</details>
 
 ## Storage and privacy
 
