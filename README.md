@@ -41,8 +41,13 @@ display a warning.
 The first launch detects German from your system language; otherwise it uses English.
 You can change it in **Settings > Language** (restart required).
 
-Hover over a highlight's count to see its average matches per hour and standard
-deviation within the displayed timeline and active filters.
+Select a log entry to view its bottom detail panel: structured metadata, message text and
+statistics with a time graph. Switch between **Identical text** and **Pattern (regex)**; the
+pattern mode counts messages that differ only in numeric values and shows a copyable regex.
+Counts, average per hour and standard deviation use the same sender/application,
+active filters and selected time range.
+Expand **Raw data** for the original packet. The **Message inspector**
+button beside Search hides or shows the panel; drag its divider to adjust the height.
 
 ## Everyday controls
 

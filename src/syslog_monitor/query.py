@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -18,6 +19,71 @@ TEXT_MODE_WORDS = "words"
 TEXT_MODE_SUBSTRING = "substring"
 _MAX_ID = 2**63 - 1
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+# A minus sign only belongs to the number if it does not join two values ("1-5").
+_NUMBER_RE = re.compile(r"(?:(?<![0-9A-Za-z])-)?[0-9]+(?:\.[0-9]+)?")
+NUMBER_REGEX = r"-?\d+(?:\.\d+)?"
+_REGEX_SPECIAL = set("\\.^$*+?{}[]|()")
+_REGEX_CONTROL = {"\n": r"\n", "\r": r"\r", "\t": r"\t"}
+GRAPH_MAX_BUCKETS = 60
+_GRAPH_BUCKETS_MS = (
+    1_000, 5_000, 10_000, 30_000, 60_000, 300_000, 600_000, 900_000, 1_800_000,
+    3_600_000, 7_200_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000,
+    172_800_000, 604_800_000)
+
+
+def _escape_literal(text: str) -> str:
+    """Readable ``re.escape``: only characters with meaning outside ``[]`` are escaped."""
+    return "".join(_REGEX_CONTROL.get(char) or ("\\" + char if char in _REGEX_SPECIAL else char)
+                   for char in text)
+
+
+def message_regex(message: str) -> str:
+    """Anchored regex matching ``message`` with every number replaced by a number pattern."""
+    return "^" + NUMBER_REGEX.join(_escape_literal(part) for part in _NUMBER_RE.split(message)) + "$"
+
+
+@lru_cache(maxsize=32)
+def _compiled_regex(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern)
+
+
+def regex_matches(pattern: str, message: str | None) -> bool:
+    return message is not None and _compiled_regex(pattern).fullmatch(message) is not None
+
+
+def graph_bucket_ms(duration_ms: int) -> int:
+    for size in _GRAPH_BUCKETS_MS:
+        if duration_ms <= size * GRAPH_MAX_BUCKETS:
+            return size
+    return -(-duration_ms // GRAPH_MAX_BUCKETS)
+
+
+def hourly_statistics(counts: dict[int, int], duration_ms: int) -> tuple[float, float]:
+    """Time-weighted hourly rates, including empty and fractional hours."""
+    hours = max(1, duration_ms) / 3_600_000
+    mean = sum(counts.values()) / hours
+    second_moment = sum(
+        count * count / min(1.0, hours - hour) for hour, count in counts.items()) / hours
+    return mean, max(0.0, second_moment - mean * mean) ** 0.5
+
+
+@dataclass(frozen=True, slots=True)
+class MessageFrequency:
+    count: int
+    per_hour: float
+    deviation: float
+    series: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MessageStatistics:
+    start_ms: int
+    end_ms: int
+    exact: MessageFrequency
+    similar: MessageFrequency
+    regex: str
+    bucket_ms: int = 3_600_000
+
 
 Cursor = tuple[int, int]  # (received_at, id)
 
@@ -158,12 +224,7 @@ class Histogram:
 
     def highlight_hourly_statistics(self, rule_index: int) -> tuple[float, float]:
         """Mean and time-weighted population deviation of hourly rates, including empty hours."""
-        hours = max(1, self.end_ms - self.start_ms) / 3_600_000
-        counts = self.highlight_hourly_counts[rule_index]
-        mean = sum(counts.values()) / hours
-        second_moment = sum(
-            count * count / min(1.0, hours - hour) for hour, count in counts.items()) / hours
-        return mean, max(0.0, second_moment - mean * mean) ** 0.5
+        return hourly_statistics(self.highlight_hourly_counts[rule_index], self.end_ms - self.start_ms)
 
 
 class SenderSummary(NamedTuple):
@@ -268,6 +329,7 @@ class QueryRunner:
 
     def __init__(self, db_file: Path) -> None:
         self._conn = connect(db_file, readonly=True)
+        self._conn.create_function("regex_matches", 2, regex_matches, deterministic=True)
 
     def interrupt(self) -> None:
         self._conn.interrupt()
@@ -392,6 +454,55 @@ class QueryRunner:
     def count(self, f: EventFilter) -> int:
         where, params = build_where(f)
         return self._conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
+
+    def message_statistics(self, f: EventFilter, row: EventRow, now_ms: int) -> MessageStatistics:
+        """One snapshot, same sender/app, exact text and numeric regex family."""
+        self._conn.execute("BEGIN")
+        try:
+            end = min(f.end_ms, now_ms) if f.end_ms is not None else now_ms
+            bounded = f.with_time(f.start_ms, end)
+            where, params = build_where(bounded)
+            where += " AND source_ip = ? AND app_name IS ?"
+            params += [row.source_ip, row.app_name]
+            first = self._conn.execute(
+                f"SELECT MIN(received_at) FROM events WHERE {where}", params).fetchone()[0]
+            start = f.start_ms if f.start_ms is not None else first if first is not None else end - 1000
+            end = max(end, start + 1)
+            # A single instant has no measurable rate; use at least one second.
+            start = min(start, end - 1000)
+            duration = end - start
+            bucket_ms = graph_bucket_ms(duration)
+            buckets = -(-duration // bucket_ms)
+            exact: dict[int, int] = {}
+            similar: dict[int, int] = {}
+            exact_series = [0] * buckets
+            similar_series = [0] * buckets
+            regex = message_regex(row.message)
+            literals = _NUMBER_RE.split(row.message)
+            if len(literals) == 1:
+                family_where, family_params = "message = ? COLLATE BINARY", [row.message]
+            else:
+                family_where = "instr(message, ?) > 0 AND regex_matches(?, message)"
+                family_params = [max(literals, key=len), regex]
+            sql = (f"SELECT (received_at - ?) / 3600000 AS hour, (received_at - ?) / ? AS bucket, "
+                   f"SUM(message = ? COLLATE BINARY), COUNT(*) FROM events WHERE {where} "
+                   f"AND {family_where} GROUP BY hour, bucket")
+            for hour, bucket, exact_count, count in self._conn.execute(
+                    sql, [start, start, bucket_ms, row.message, *params, *family_params]):
+                exact[hour] = exact.get(hour, 0) + exact_count
+                similar[hour] = similar.get(hour, 0) + count
+                bucket = min(max(bucket, 0), buckets - 1)
+                exact_series[bucket] += exact_count
+                similar_series[bucket] += count
+            return MessageStatistics(
+                start, end,
+                MessageFrequency(sum(exact.values()), *hourly_statistics(exact, duration),
+                                 tuple(exact_series)),
+                MessageFrequency(sum(similar.values()), *hourly_statistics(similar, duration),
+                                 tuple(similar_series)),
+                regex, bucket_ms)
+        finally:
+            self._conn.rollback()
 
     def senders(self, since_ms: int, limit: int) -> list[SenderSummary]:
         """Sending devices since ``since_ms``, most recently active first."""

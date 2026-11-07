@@ -120,6 +120,6 @@ class QueryClient(QObject):
 
     @Slot(int, str)
     def _on_failed(self, request_id: int, message: str) -> None:
-        self._pending.pop(request_id, None)
-        if message:
+        generation, _callback = self._pending.pop(request_id, (None, None))
+        if message and generation == self.generation:
             self.error.emit(message)

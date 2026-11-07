@@ -1,6 +1,35 @@
 """German UI translations."""
 
 GERMAN_TRANSLATIONS = {
+    "Identical text": "Identischer Text",
+    "Pattern (regex)": "Muster (Regex)",
+    "Count messages with exactly the same text.": "Nachrichten mit exakt gleichem Text zählen.",
+    "Count messages matching the regex: only numbers may differ.":
+        "Nachrichten zählen, die zur Regex passen: Nur Zahlen dürfen sich unterscheiden.",
+    "Regex pattern": "Regex-Muster",
+    "Regex pattern: numbers are replaced by {number}; all other characters must match.":
+        "Regex-Muster: Zahlen werden durch {number} ersetzt; alle anderen Zeichen müssen übereinstimmen.",
+    "Copy": "Kopieren",
+    "Copy regex to the clipboard": "Regex in die Zwischenablage kopieren",
+    "Occurrences over time": "Vorkommen im Zeitverlauf",
+    "max {count} per {bucket}": "max. {count} pro {bucket}",
+    "{start} – {end}: {count} occurrences": "{start} – {end}: {count} Vorkommen",
+    "σ {deviation:.2f}/h": "σ {deviation:.2f}/h",
+    "{start} – {end} · per {bucket}": "{start} – {end} · pro {bucket}",
+    "Regex: {regex}": "Regex: {regex}",
+    "Message inspector": "Nachrichteninspektor",
+    "Standard deviation: {deviation:.2f}/hour": "Standardabweichung: {deviation:.2f}/Stunde",
+    "Message statistics": "Nachrichtenstatistik",
+    "Calculating message statistics…": "Nachrichtenstatistik wird berechnet…",
+    "Statistics failed: {message}": "Statistik fehlgeschlagen: {message}",
+    "Same sender and application; active filters and time range (including zoom).":
+        "Gleicher Sender und gleiche Anwendung; aktive Filter und Zeitraum (einschließlich Zoom).",
+    "Sender: {sender} · Application: {app}": "Sender: {sender} · Anwendung: {app}",
+    "Occurrences: {count}": "Vorkommen: {count}",
+    "Only numbers vary; all other characters must match exactly. This is a heuristic, not semantic similarity.":
+        "Nur Zahlen variieren; alle anderen Zeichen müssen exakt übereinstimmen. Dies ist eine Heuristik, keine semantische Ähnlichkeit.",
+    "Rates include empty hours. Partial hours are time-weighted; minimum observation window: 1 second. For an open start, use the first matching sender/application event.":
+        "Leere Stunden zählen mit. Angebrochene Stunden werden zeitlich gewichtet; Mindestzeitraum: 1 Sekunde. Bei offenem Beginn zählt das erste passende Ereignis des Senders/der Anwendung.",
     "Choose minimize or quit (Ctrl+Q)": "Minimieren oder Beenden auswählen (Strg+Q)",
     "Minimize or quit": "Minimieren oder beenden",
     "Minimize to tray": "In den Infobereich minimieren",

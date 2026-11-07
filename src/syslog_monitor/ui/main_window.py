@@ -24,7 +24,7 @@ from syslog_monitor.i18n import language, tr
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
     DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, TEXT_MODE_WORDS, Cursor, EventFilter, HighlightBatch, Histogram,
-    HighlightRule, QueryRunner,
+    EventRow, HighlightRule, QueryRunner,
 )
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
@@ -39,6 +39,7 @@ from syslog_monitor.ui.highlight_alerts import MAX_LISTED, MIN_INTERVAL_S, Highl
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.icons import app_icon
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
+from syslog_monitor.ui.message_inspector import MessageInspector
 from syslog_monitor.ui.navigation import NavigationRail
 from syslog_monitor.ui.palette import apply_theme, is_dark, status_color
 from syslog_monitor.ui.query_worker import QueryClient
@@ -128,6 +129,11 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(app_icon())
         self.queries = QueryClient(service.db_path, self)
         self.queries.error.connect(self._on_query_error)
+        self.statistics_queries = QueryClient(service.db_path, self)
+        self.statistics_queries.error.connect(self._on_statistics_error)
+        self._selected_stats_row: EventRow | None = None
+        self._statistics_timer = QTimer(self, singleShot=True, interval=100)
+        self._statistics_timer.timeout.connect(self._request_message_statistics)
 
         self._build_ui()
         self._install_zoom_shortcuts()
@@ -337,16 +343,20 @@ class MainWindow(QMainWindow):
             signal.connect(lambda *_args: self._visible_range_timer.start(0))
         self.table.selectionModel().currentRowChanged.connect(self._on_current_row)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.model.modelReset.connect(self._clear_selected_message)
 
-        self.details = QPlainTextEdit(readOnly=True)
-        self.details.setFont(QFont("Consolas", 9))
-        self.details.setPlaceholderText(tr("Select a message to view its details and raw data."))
-
+        self.inspector = MessageInspector()
+        self.details = self.inspector.details
+        self.statistics = self.inspector.statistics
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(self.table)
-        self.splitter.addWidget(self.details)
+        self.splitter.addWidget(self.inspector)
         self.splitter.setStretchFactor(0, 4)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([600, 240])
+        self.inspector_action = QAction(tr("Message inspector"), self, checkable=True, checked=True)
+        self.inspector_action.toggled.connect(self.inspector.setVisible)
+        search_row.addWidget(self._inspector_button())
 
         self.filters_scroll = QScrollArea(widgetResizable=True)
         self.highlights_scroll = QScrollArea(widgetResizable=True)
@@ -450,6 +460,11 @@ class MainWindow(QMainWindow):
     def focus_search(self) -> None:
         self.show_page("logs")
         self.search_text.setFocus()
+
+    def _inspector_button(self) -> QToolButton:
+        button = QToolButton()
+        button.setDefaultAction(self.inspector_action)
+        return button
 
     def _show_column_menu(self, position) -> None:
         header = self.table.horizontalHeader()
@@ -985,17 +1000,65 @@ class MainWindow(QMainWindow):
 
     def _on_current_row(self, current, _previous) -> None:
         row = self.model.row_at(current.row())
+        self._clear_selected_message()
+        self._selected_stats_row = row
         if row is None:
-            self.details.clear()
             return
-        event_id = row.id
-        self.queries.submit(lambda r: r.get_event(event_id), self._show_details)
+        self.queries.submit(
+            lambda runner: runner.get_event(row.id),
+            lambda event: self._show_details(event)
+            if self._selected_stats_row is not None and self._selected_stats_row.id == row.id else None)
+        self.inspector.show_statistics_message(tr("Calculating message statistics…"))
+        self._statistics_timer.start(100)
+
+    def _clear_selected_message(self) -> None:
+        self._selected_stats_row = None
+        self.statistics_queries.new_generation()
+        self._statistics_timer.stop()
+        self.inspector.clear()
+
+    def _on_statistics_error(self, message: str) -> None:
+        self.inspector.show_statistics_message(tr("Statistics failed: {message}", message=message))
+        self._on_query_error(message)
+
+    def _request_message_statistics(self) -> None:
+        row = self._selected_stats_row
+        if row is None:
+            return
+        if self.statistics_queries.busy:
+            self._statistics_timer.start(250)
+            return
+        filters, now = self.list_filter(), _now_ms()
+
+        def job(runner):
+            return runner.get_event(row.id), runner.message_statistics(filters, row, now)
+
+        def apply(result):
+            if self._selected_stats_row is None or self._selected_stats_row.id != row.id:
+                return
+            event, stats = result
+            self._show_details(event)
+            if event is None:
+                self.inspector.show_statistics_message(tr("Message no longer exists (deleted by retention)."))
+                return
+            lines = [
+                tr("Same sender and application; active filters and time range (including zoom)."),
+                tr("Sender: {sender} · Application: {app}", sender=row.source_ip, app=row.app_name or "–"),
+                f"{format_ts(stats.start_ms)} – {format_ts(stats.end_ms)}",
+                tr("Regex: {regex}", regex=stats.regex),
+                tr("Only numbers vary; all other characters must match exactly. This is a heuristic, not semantic similarity."),
+                tr("Rates include empty hours. Partial hours are time-weighted; minimum observation window: 1 second. For an open start, use the first matching sender/application event."),
+            ]
+            self.inspector.show_statistics(stats, lines, row.received_at)
+            self._statistics_timer.start(5000)
+
+        self.statistics_queries.submit(job, apply)
 
     def _show_details(self, event) -> None:
         if event is None:
             self.details.setPlainText(tr("Message no longer exists (deleted by retention)."))
         else:
-            self.details.setPlainText(format_event_details(event))
+            self.inspector.show_event(event)
 
     # ----------------------------------------------------------------- status
     @Slot()
@@ -1353,6 +1416,8 @@ class MainWindow(QMainWindow):
             timer.stop()
         self._highlight_timer.stop()
         self._visible_range_timer.stop()
+        self._statistics_timer.stop()
+        self.statistics_queries.shutdown()
         self.queries.shutdown()
         if self.tray:
             self.tray.hide()
@@ -1361,7 +1426,9 @@ class MainWindow(QMainWindow):
         s = self._ui_state
         s.setValue("geometry", self.saveGeometry())
         s.setValue("window_state", self.saveState())
-        s.setValue("splitter", self.splitter.saveState())
+        s.setValue("bottom_inspector_splitter", self.splitter.saveState())
+        s.setValue("inspector_visible", self.inspector_action.isChecked())
+        s.setValue("statistics_mode", self.inspector.mode)
         s.setValue("rules_splitter", self.rules_splitter.saveState())
         s.setValue("columns", self.table.horizontalHeader().saveState())
         s.setValue("visible_columns", json.dumps([
@@ -1403,12 +1470,14 @@ class MainWindow(QMainWindow):
                                            "popup": legacy_popup}])
         self.model.set_highlight_rules(self.highlights.rules())
         for key, restore in (("geometry", self.restoreGeometry), ("window_state", self.restoreState),
-                             ("splitter", self.splitter.restoreState),
+                             ("bottom_inspector_splitter", self.splitter.restoreState),
                              ("rules_splitter", self.rules_splitter.restoreState),
                              ("columns", self.table.horizontalHeader().restoreState)):
             value = s.value(key)
             if value is not None:
                 restore(value)
+        self.inspector_action.setChecked(str(s.value("inspector_visible", True)).lower() == "true")
+        self.inspector.set_mode(str(s.value("statistics_mode", "exact")))
         stored_visibility = s.value("visible_columns")
         if stored_visibility is not None:
             try:

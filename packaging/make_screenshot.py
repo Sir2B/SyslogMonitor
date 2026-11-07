@@ -172,6 +172,7 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
                   and window.minimap.histogram.total >= total)
             window.table.selectRow(3)  # the warning below the highlighted message fills the detail pane
             _wait(app, lambda: bool(window.details.toPlainText()))
+            _wait(app, lambda: bool(window.inspector.graph.series))
             if view == "highlights":
                 window.highlights.edit_rule(window.highlights.rule_rows[0])
             elif view == "columns":

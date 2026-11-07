@@ -45,6 +45,115 @@ def fill(store, events):
     return QueryRunner(store.path)
 
 
+@pytest.mark.parametrize(("left", "right", "similar"), [
+    ("temperature=24.3C load=1", "temperature=-9.75C load=100", True),
+    ("eth1: errors 2", "eth20: errors 8", True),
+    ("range 1-5", "range 10-20", True),
+    ("disk full", "disk FULL", False),
+    ("port 1 up", "port 2 down", False),
+    ("code {number}", "code 42", False),
+    ("hello", "hello 1", False),
+    ("code 1", "code 1 2", False),
+    ("100%_done", "200%_done", True),
+    ("a.b (1) [x]", "a.b (22) [x]", True),
+    ("a.b (1) [x]", "axb (1) [x]", False),
+    ("line 1\nnext", "line 2\nnext", True),
+])
+def test_message_regex_varies_only_numbers(left, right, similar):
+    from syslog_monitor.query import message_regex, regex_matches
+
+    assert regex_matches(message_regex(left), left)
+    assert regex_matches(message_regex(left), right) == similar
+
+
+def test_message_regex_is_readable():
+    from syslog_monitor.query import message_regex
+
+    assert message_regex("temp=24.3 (max 30)") == r"^temp=-?\d+(?:\.\d+)? \(max -?\d+(?:\.\d+)?\)$"
+    assert message_regex("plain text") == "^plain text$"
+
+
+def test_graph_bucket_sizes_are_round_and_bounded():
+    from syslog_monitor.query import GRAPH_MAX_BUCKETS, graph_bucket_ms
+
+    assert graph_bucket_ms(1_000) == 1_000
+    assert graph_bucket_ms(3_600_000) == 60_000
+    assert graph_bucket_ms(24 * 3_600_000) == 1_800_000
+    huge = 1000 * 86_400_000 * 7
+    assert huge / graph_bucket_ms(huge) <= GRAPH_MAX_BUCKETS
+
+
+def test_message_statistics_exact_similar_scope_and_empty_hours(store):
+    hour = 3_600_000
+    q = fill(store, [
+        make_event(0, message="other traffic"),
+        make_event(hour, message="temperature=24.3"),
+        make_event(hour + 1, message="temperature=24.3"),
+        make_event(hour + 2, message="temperature=99.5"),
+        make_event(hour + 3, message="temperature=99.5", source_ip="192.0.2.2"),
+        make_event(hour + 4, message="temperature=99.5", app_name="other"),
+        make_event(hour + 5, message="Temperature=24.3"),
+        make_event(2 * hour, message="temperature=24.3"),
+    ])
+    try:
+        row = q.fetch_older(EventFilter(end_ms=BASE_MS + 2 * hour), None, 10)[-2]
+        assert row.message == "temperature=24.3"
+        stats = q.message_statistics(
+            EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 2 * hour), row, BASE_MS + 3 * hour)
+        assert stats.exact.count == 2 and stats.similar.count == 3
+        assert (stats.exact.per_hour, stats.exact.deviation) == pytest.approx((1, 1))
+        assert (stats.similar.per_hour, stats.similar.deviation) == pytest.approx((1.5, 1.5))
+        filtered = q.message_statistics(
+            EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 2 * hour,
+                        rules=(FilterRule("message", "equals", "temperature=99.5"),)),
+            row, BASE_MS + 3 * hour)
+        assert filtered.exact.count == 0 and filtered.similar.count == 1
+        assert stats.regex == r"^temperature=-?\d+(?:\.\d+)?$"
+        assert stats.bucket_ms == 300_000 and len(stats.similar.series) == 24
+        assert stats.exact.series[12] == 2 and stats.similar.series[12] == 3
+        assert sum(stats.similar.series) == stats.similar.count
+    finally:
+        q.close()
+
+
+def test_message_statistics_partial_hours_null_app_and_open_start(store):
+    hour = 3_600_000
+    q = fill(store, [
+        make_event(0, message="boot", app_name=None),
+        make_event(hour // 4, message="value 1", app_name=None),
+        make_event(hour, message="value 2", app_name=None),
+    ])
+    try:
+        row = q.fetch_older(EventFilter(), None, 1)[0]
+        stats = q.message_statistics(EventFilter(), row, BASE_MS + hour + hour // 2)
+        assert stats.start_ms == BASE_MS
+        assert stats.similar.count == 2
+        assert stats.similar.per_hour == pytest.approx(2 / 1.5)
+        assert stats.similar.deviation == pytest.approx((2 - (2 / 1.5) ** 2) ** 0.5)
+        instant = q.message_statistics(
+            EventFilter(start_ms=BASE_MS + hour, end_ms=BASE_MS + hour + 1),
+            row, BASE_MS + hour + 1)
+        assert instant.exact.count == 1 and instant.exact.per_hour == 3600
+    finally:
+        q.close()
+
+
+def test_message_statistics_count_beyond_loaded_page_and_clamp_future_end(store):
+    q = fill(store, [make_event(i, message=f"value={i}%_") for i in range(5001)])
+    try:
+        row = q.fetch_older(EventFilter(), None, 1)[0]
+        stats = q.message_statistics(
+            EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 4 * 3_600_000),
+            row, BASE_MS + 2 * 3_600_000)
+        assert stats.end_ms == BASE_MS + 2 * 3_600_000
+        assert stats.exact.count == 1
+        assert stats.similar.count == 5001
+        assert stats.similar.per_hour == pytest.approx(2500.5)
+        assert q.count(EventFilter()) == 5001
+    finally:
+        q.close()
+
+
 def test_fts_query_is_safe():
     assert fts_query('foo "bar" OR NEAR(x)') == '"foo"* "bar"* "OR"* "NEAR"* "x"*'
     assert fts_query("!!!") is None

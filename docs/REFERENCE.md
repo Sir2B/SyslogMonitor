@@ -298,7 +298,7 @@ or the CI runner's temporary directory.
 | **Language** | On first launch, the application detects German from the system locale and otherwise defaults to English. Choose English or German in **Settings > Language** to override it; changes take effect after restarting. |
 | **About** | Open **About** in the sidebar for the app version, runtime details, license, and project links. |
 | **Minimap** | Stacked bars per time bucket (red = errors, orange = warnings, etc.) with a red error strip above. The gray band marks the time span of the currently visible table rows and follows scrolling and resizing. With sparse data, the range is automatically narrowed and padded around existing messages. The displayed range appears in the header. **Click** to jump to a time. **Drag** to zoom to a selected range; “Reset zoom” restores automatic scaling. Tooltips show counts and milliseconds. |
-| **Details** | Shows all fields of the selected row, including raw data and parser notes. |
+| **Details / statistics** | The bottom panel groups metadata into compact label/value columns beside the statistics (mode selector, rates, regex and time graph). The message is shown below the metadata; **Raw data** expands the original packet. Drag the divider to adjust the height, or toggle **Message inspector** beside Search to hide it. |
 | **F5** | Opens Logs, clears minimap zoom, reloads and goes to the latest messages matching the active filters and time range. Autoscroll stays unchanged. |
 | **Close button** | Minimizes the window to the tray; receiving continues. **Quit** in the sidebar (or Ctrl+Q) opens a page with separate minimize and quit actions. The tray menu can still quit directly. Without a tray, the minimize action minimizes to the taskbar. |
 
@@ -605,16 +605,44 @@ src/syslog_monitor/
 Core logic (`parser`, `storage`, `query`, `writer`, `service`) does not depend on Qt and
 can be tested without the GUI. The GUI reads through `QueryRunner` in a dedicated thread.
 
-## Highlight frequency statistics
+## Selected-message statistics
 
-Hover over a highlight count for its mean rate and population standard deviation
-in matches/hour. The calculation uses exact hourly counts, not minimap pixels.
-Intervals start at the displayed minimap range; this range may be narrower than the
-chosen time preset because the minimap fits the available data. Active filters and
-highlight priority apply. Empty hours are included. A final partial hour is normalized
-to a per-hour rate and weighted by its duration. For a range shorter than one hour,
-there is one rate sample and the deviation is zero, not evidence of regular behavior.
-The deviation describes variation between intervals; it is not a confidence interval.
+Select an entry in Logs. The bottom detail panel shows statistics across
+stored records, not just loaded table rows, for the **same sender IP and application**.
+The active filters, chosen time range and minimap zoom apply; highlight rules do not.
+Highlight tooltips retain their hit counts but no longer show hourly statistics.
+
+Choose the counting mode at the top of the statistics column; the choice is remembered.
+Each mode button shows its count.
+
+- **Identical text:** case-sensitive equality of the parsed message field.
+  Reception timestamps, priority and other metadata are not part of this comparison.
+- **Pattern (regex):** includes identical texts and messages matching an anchored regular
+  expression in which each number of the selected message becomes `-?\d+(?:\.\d+)?`
+  and all other characters are literal (special characters are escaped). A minus sign is
+  part of a number only if it does not directly follow a letter or digit, so `1-5` remains
+  two numbers separated by `-`. Numbers in identifiers are recognized too.
+  For example, `temperature=24.3` and `temperature=-9.75` match
+  `^temperature=-?\d+(?:\.\d+)?$`; `port 1 up` and `port 2 down` do not. The regex is
+  shown in the panel and can be copied for searching. This is a deterministic heuristic,
+  not semantic matching: different error codes or interface numbers can be grouped, and
+  changing words, whitespace, capitalization, or the number of fields keeps messages separate.
+
+The panel shows count, mean occurrences/hour and population standard deviation for the
+chosen mode, plus a bar graph of occurrences over the statistics range. Bars use round
+intervals (1 s up to 7 days) so that there are at most 60 bars; the dashed line marks the
+selected message and a bar tooltip shows its interval and count.
+Intervals start at the displayed statistics start time. Unlike the automatically
+padded minimap, the denominator is the selected range: an open start uses the first
+event of the sender/application within the filters, and an open/future end stops at
+the current time. A minimum one-second observation window avoids division by zero.
+The exact and pattern modes use the same observation window.
+
+Empty hours count. A final partial hour is normalized to an hourly rate and weighted
+by duration. For less than one hour there is one rate sample, so deviation is zero;
+this is not evidence of regular behavior or a confidence interval.
+Statistics run in a separate interruptible query worker, update on selection and
+every five seconds while an entry remains current, and display errors explicitly.
 
 ## Tests
 
