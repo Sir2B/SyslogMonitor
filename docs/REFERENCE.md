@@ -627,6 +627,12 @@ Each mode button shows its count.
   shown in the panel and can be copied for searching. This is a deterministic heuristic,
   not semantic matching: different error codes or interface numbers can be grouped, and
   changing words, whitespace, capitalization, or the number of fields keeps messages separate.
+- **Custom regex:** the regex field is editable. Press Enter to recount the pattern mode
+  with your own Python regular expression (search semantics, so use `^`/`$` to match whole
+  messages; matching is case-sensitive unless you add `(?i)`). Invalid expressions are
+  outlined in red and not applied. **↺** restores the automatic pattern. The custom regex
+  applies to the selected message only; the identical-text count is unaffected even if the
+  regex does not match the selected message. Very complex expressions can slow the count.
 
 The panel shows count, mean occurrences/hour and population standard deviation for the
 chosen mode, plus a bar graph of occurrences over the statistics range. Bars use round

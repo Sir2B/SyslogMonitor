@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from conftest import BASE_MS, make_event
@@ -112,6 +114,14 @@ def test_message_statistics_exact_similar_scope_and_empty_hours(store):
         assert stats.bucket_ms == 300_000 and len(stats.similar.series) == 24
         assert stats.exact.series[12] == 2 and stats.similar.series[12] == 3
         assert sum(stats.similar.series) == stats.similar.count
+        custom = q.message_statistics(
+            EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 2 * hour), row, BASE_MS + 3 * hour,
+            r"(?i)^temperature=99")
+        assert custom.custom_regex and custom.regex == r"(?i)^temperature=99"
+        assert custom.exact.count == 2 and custom.similar.count == 1
+        assert sum(custom.exact.series) == 2
+        with pytest.raises(re.error):
+            q.message_statistics(EventFilter(), row, BASE_MS, "(")
     finally:
         q.close()
 

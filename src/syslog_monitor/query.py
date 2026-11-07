@@ -48,7 +48,8 @@ def _compiled_regex(pattern: str) -> re.Pattern[str]:
 
 
 def regex_matches(pattern: str, message: str | None) -> bool:
-    return message is not None and _compiled_regex(pattern).fullmatch(message) is not None
+    """Python ``re.search`` semantics; anchor with ``^``/``$`` for whole messages."""
+    return message is not None and _compiled_regex(pattern).search(message) is not None
 
 
 def graph_bucket_ms(duration_ms: int) -> int:
@@ -83,6 +84,7 @@ class MessageStatistics:
     similar: MessageFrequency
     regex: str
     bucket_ms: int = 3_600_000
+    custom_regex: bool = False
 
 
 Cursor = tuple[int, int]  # (received_at, id)
@@ -455,8 +457,15 @@ class QueryRunner:
         where, params = build_where(f)
         return self._conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
 
-    def message_statistics(self, f: EventFilter, row: EventRow, now_ms: int) -> MessageStatistics:
-        """One snapshot, same sender/app, exact text and numeric regex family."""
+    def message_statistics(self, f: EventFilter, row: EventRow, now_ms: int,
+                           regex: str | None = None) -> MessageStatistics:
+        """One snapshot, same sender/app, exact text and a regex family.
+
+        Without ``regex`` the family is :func:`message_regex` of the selected message.
+        """
+        custom = regex is not None
+        if custom:
+            re.compile(regex)  # report invalid patterns before touching the database
         self._conn.execute("BEGIN")
         try:
             end = min(f.end_ms, now_ms) if f.end_ms is not None else now_ms
@@ -477,18 +486,26 @@ class QueryRunner:
             similar: dict[int, int] = {}
             exact_series = [0] * buckets
             similar_series = [0] * buckets
-            regex = message_regex(row.message)
             literals = _NUMBER_RE.split(row.message)
-            if len(literals) == 1:
-                family_where, family_params = "message = ? COLLATE BINARY", [row.message]
+            if custom:
+                # A custom regex need not match the selected message; count both independently.
+                family_where = "(message = ? COLLATE BINARY OR regex_matches(?, message))"
+                family_params = [row.message, regex]
+                similar_expr, similar_params = "SUM(regex_matches(?, message))", [regex]
             else:
-                family_where = "instr(message, ?) > 0 AND regex_matches(?, message)"
-                family_params = [max(literals, key=len), regex]
+                regex = message_regex(row.message)
+                similar_expr, similar_params = "COUNT(*)", []
+                if len(literals) == 1:
+                    family_where, family_params = "message = ? COLLATE BINARY", [row.message]
+                else:
+                    family_where = "instr(message, ?) > 0 AND regex_matches(?, message)"
+                    family_params = [max(literals, key=len), regex]
             sql = (f"SELECT (received_at - ?) / 3600000 AS hour, (received_at - ?) / ? AS bucket, "
-                   f"SUM(message = ? COLLATE BINARY), COUNT(*) FROM events WHERE {where} "
+                   f"SUM(message = ? COLLATE BINARY), {similar_expr} FROM events WHERE {where} "
                    f"AND {family_where} GROUP BY hour, bucket")
             for hour, bucket, exact_count, count in self._conn.execute(
-                    sql, [start, start, bucket_ms, row.message, *params, *family_params]):
+                    sql, [start, start, bucket_ms, row.message, *similar_params, *params,
+                          *family_params]):
                 exact[hour] = exact.get(hour, 0) + exact_count
                 similar[hour] = similar.get(hour, 0) + count
                 bucket = min(max(bucket, 0), buckets - 1)
@@ -500,7 +517,7 @@ class QueryRunner:
                                  tuple(exact_series)),
                 MessageFrequency(sum(similar.values()), *hourly_statistics(similar, duration),
                                  tuple(similar_series)),
-                regex, bucket_ms)
+                regex, bucket_ms, custom)
         finally:
             self._conn.rollback()
 

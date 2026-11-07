@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from html import escape
 
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
@@ -20,6 +21,14 @@ from syslog_monitor.ui.palette import is_dark
 MODE_EXACT = "exact"
 MODE_PATTERN = "pattern"
 STATISTICS_MODES = (MODE_EXACT, MODE_PATTERN)
+
+
+def regex_error(pattern: str) -> str | None:
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        return str(exc)
+    return None
 
 
 def format_bucket(ms: int) -> str:
@@ -109,6 +118,7 @@ class FrequencyGraph(QWidget):
 
 class MessageInspector(QWidget):
     mode_changed = Signal(str)
+    regex_changed = Signal(object)  # str, or None for the automatic pattern
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -167,16 +177,27 @@ class MessageInspector(QWidget):
         self.summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
         column.addWidget(self.summary)
         regex_row = QHBoxLayout()
-        self.regex = QLineEdit(readOnly=True)
+        self.regex = QLineEdit()
         self.regex.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.regex.setAccessibleName(tr("Regex pattern"))
-        self.regex.setToolTip(tr("Regex pattern: numbers are replaced by {number}; all other characters must match.",
-                                 number=r"-?\d+(?:\.\d+)?"))
+        self.regex.setClearButtonEnabled(False)
+        self._regex_tooltip = tr(
+            "Editable Python regex (search; use ^ and $ for whole messages). Press Enter to apply.\n"
+            "Automatic pattern: numbers are replaced by {number}; all other characters must match.",
+            number=r"-?\d+(?:\.\d+)?")
+        self.regex.setToolTip(self._regex_tooltip)
+        self.regex.textEdited.connect(self._on_regex_edited)
+        self.regex.returnPressed.connect(self._apply_regex)
+        self.reset_regex = QToolButton()
+        self.reset_regex.setText("↺")
+        self.reset_regex.setToolTip(tr("Reset to the automatic pattern"))
+        self.reset_regex.clicked.connect(self._reset_regex)
         self.copy_regex = QToolButton()
         self.copy_regex.setText(tr("Copy"))
         self.copy_regex.setToolTip(tr("Copy regex to the clipboard"))
         self.copy_regex.clicked.connect(lambda: QApplication.clipboard().setText(self.regex.text()))
         regex_row.addWidget(self.regex, 1)
+        regex_row.addWidget(self.reset_regex)
         regex_row.addWidget(self.copy_regex)
         self.regex_row = QWidget()
         self.regex_row.setLayout(regex_row)
@@ -190,9 +211,31 @@ class MessageInspector(QWidget):
         column.addWidget(self.footer)
         self._stats: MessageStatistics | None = None
         self._marker_ms: int | None = None
+        self._regex_dirty = False
         self._update_mode_labels()
         self.clear_statistics()
         return self.statistics
+
+    def _on_regex_edited(self, text: str) -> None:
+        self._regex_dirty = True
+        error = regex_error(text)
+        self.regex.setStyleSheet("" if error is None else "QLineEdit { border: 1px solid #d62728; }")
+        self.regex.setToolTip(self._regex_tooltip if error is None
+                              else tr("Invalid regex: {error}", error=error))
+        self.reset_regex.setEnabled(True)
+
+    def _apply_regex(self) -> None:
+        text = self.regex.text()
+        if regex_error(text) is not None:
+            return
+        self._regex_dirty = False
+        self.regex_changed.emit(text if text else None)
+
+    def _reset_regex(self) -> None:
+        self._regex_dirty = False
+        self.regex.setStyleSheet("")
+        self.regex.setToolTip(self._regex_tooltip)
+        self.regex_changed.emit(None)
 
     @property
     def mode(self) -> str:
@@ -209,6 +252,8 @@ class MessageInspector(QWidget):
     def _update_mode_labels(self) -> None:
         stats = self._stats
         for mode, title in ((MODE_EXACT, tr("Identical text")), (MODE_PATTERN, tr("Pattern (regex)"))):
+            if mode == MODE_PATTERN and stats is not None and stats.custom_regex:
+                title = tr("Custom regex")
             if stats is not None:
                 count = (stats.exact if mode == MODE_EXACT else stats.similar).count
                 title = f"{title} · {format_count(count)}"
@@ -219,6 +264,9 @@ class MessageInspector(QWidget):
         self._update_mode_labels()
         self.summary.setText(message)
         self.regex.clear()
+        self.regex.setStyleSheet("")
+        self.regex.setToolTip(self._regex_tooltip)
+        self._regex_dirty = False
         self.regex_row.hide()
         self.graph.clear()
         self.footer.clear()
@@ -254,8 +302,10 @@ class MessageInspector(QWidget):
             f"{frequency.per_hour:.2f}/h",
             tr("σ {deviation:.2f}/h", deviation=frequency.deviation))))
         self.summary.setToolTip(tr("Standard deviation: {deviation:.2f}/hour", deviation=frequency.deviation))
-        self.regex.setText(stats.regex)
-        self.regex.setCursorPosition(0)
+        if not self._regex_dirty:
+            self.regex.setText(stats.regex)
+            self.regex.setCursorPosition(0)
+            self.reset_regex.setEnabled(stats.custom_regex)
         self.regex_row.setVisible(pattern)
         self.graph.set_series(stats.start_ms, stats.bucket_ms, frequency.series, self._marker_ms)
         self.footer.setText(tr("{start} – {end} · per {bucket}", start=format_ts(stats.start_ms),

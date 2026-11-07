@@ -43,7 +43,7 @@ You can change it in **Settings > Language** (restart required).
 
 Select a log entry to view its bottom detail panel: structured metadata, message text and
 statistics with a time graph. Switch between **Identical text** and **Pattern (regex)**; the
-pattern mode counts messages that differ only in numeric values and shows a copyable regex.
+pattern mode counts messages that differ only in numeric values and shows an editable, copyable regex.
 Counts, average per hour and standard deviation use the same sender/application,
 active filters and selected time range.
 Expand **Raw data** for the original packet. The **Message inspector**

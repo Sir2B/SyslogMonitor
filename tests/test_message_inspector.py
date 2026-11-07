@@ -63,6 +63,37 @@ def test_statistics_mode_switch_graph_and_regex(qtbot):
     assert inspector.mode == MODE_EXACT
 
 
+def test_regex_editing_validates_applies_and_resets(qtbot):
+    inspector = MessageInspector()
+    qtbot.addWidget(inspector)
+    inspector.show()
+    inspector.set_mode(MODE_PATTERN)
+    applied = []
+    inspector.regex_changed.connect(applied.append)
+    inspector.show_statistics(_stats(), [])
+    assert not inspector.regex.isReadOnly()
+    assert not inspector.reset_regex.isEnabled()
+    inspector.regex.setFocus()
+    inspector.regex.selectAll()
+    qtbot.keyClicks(inspector.regex, "(")
+    assert "Invalid regex" in inspector.regex.toolTip()
+    qtbot.keyClick(inspector.regex, Qt.Key_Return)
+    assert applied == []
+    inspector.regex.selectAll()
+    qtbot.keyClicks(inspector.regex, "^value")
+    inspector.show_statistics(_stats(), [])  # refresh must not overwrite unapplied edits
+    assert inspector.regex.text() == "^value"
+    qtbot.keyClick(inspector.regex, Qt.Key_Return)
+    assert applied == ["^value"]
+    custom = MessageStatistics(0, 3_600_000, MessageFrequency(2, 2, 0, (1, 0, 1)),
+                               MessageFrequency(4, 4, 0, (2, 0, 2)), "^value", 1_200_000, True)
+    inspector.show_statistics(custom, [])
+    assert "Custom regex · 4" in inspector.statistics_text()
+    assert inspector.reset_regex.isEnabled()
+    inspector.reset_regex.click()
+    assert applied == ["^value", None]
+
+
 def test_bucket_labels():
     assert format_bucket(1_000) == "1 s"
     assert format_bucket(300_000) == "5 min"

@@ -346,6 +346,8 @@ class MainWindow(QMainWindow):
         self.model.modelReset.connect(self._clear_selected_message)
 
         self.inspector = MessageInspector()
+        self.inspector.regex_changed.connect(self._set_statistics_regex)
+        self._custom_regex: tuple[int, str] | None = None  # (row id, regex)
         self.details = self.inspector.details
         self.statistics = self.inspector.statistics
         self.splitter = QSplitter(Qt.Vertical)
@@ -1021,6 +1023,14 @@ class MainWindow(QMainWindow):
         self.inspector.show_statistics_message(tr("Statistics failed: {message}", message=message))
         self._on_query_error(message)
 
+    def _set_statistics_regex(self, regex: str | None) -> None:
+        row = self._selected_stats_row
+        if row is None:
+            return
+        self._custom_regex = (row.id, regex) if regex else None
+        self.statistics_queries.new_generation()
+        self._statistics_timer.start(0)
+
     def _request_message_statistics(self) -> None:
         row = self._selected_stats_row
         if row is None:
@@ -1029,9 +1039,10 @@ class MainWindow(QMainWindow):
             self._statistics_timer.start(250)
             return
         filters, now = self.list_filter(), _now_ms()
+        regex = self._custom_regex[1] if self._custom_regex and self._custom_regex[0] == row.id else None
 
         def job(runner):
-            return runner.get_event(row.id), runner.message_statistics(filters, row, now)
+            return runner.get_event(row.id), runner.message_statistics(filters, row, now, regex)
 
         def apply(result):
             if self._selected_stats_row is None or self._selected_stats_row.id != row.id:

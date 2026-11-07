@@ -7,8 +7,13 @@ GERMAN_TRANSLATIONS = {
     "Count messages matching the regex: only numbers may differ.":
         "Nachrichten zählen, die zur Regex passen: Nur Zahlen dürfen sich unterscheiden.",
     "Regex pattern": "Regex-Muster",
-    "Regex pattern: numbers are replaced by {number}; all other characters must match.":
-        "Regex-Muster: Zahlen werden durch {number} ersetzt; alle anderen Zeichen müssen übereinstimmen.",
+    "Editable Python regex (search; use ^ and $ for whole messages). Press Enter to apply.\n"
+    "Automatic pattern: numbers are replaced by {number}; all other characters must match.":
+        "Bearbeitbare Python-Regex (Suche; ^ und $ für ganze Nachrichten). Mit Enter übernehmen.\n"
+        "Automatisches Muster: Zahlen werden durch {number} ersetzt; alle anderen Zeichen müssen übereinstimmen.",
+    "Reset to the automatic pattern": "Auf automatisches Muster zurücksetzen",
+    "Invalid regex: {error}": "Ungültige Regex: {error}",
+    "Custom regex": "Eigene Regex",
     "Copy": "Kopieren",
     "Copy regex to the clipboard": "Regex in die Zwischenablage kopieren",
     "Occurrences over time": "Vorkommen im Zeitverlauf",

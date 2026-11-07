@@ -197,6 +197,12 @@ def test_selected_message_statistics_split_exact_and_numeric_family(qtbot, windo
     assert sum(window.inspector.graph.series) == 3
     window._save_ui_state()
     assert window._ui_state.value("statistics_mode") == "pattern"
+    window.inspector.regex.setText(r"^temperature=24")
+    window.inspector.regex.returnPressed.emit()
+    qtbot.waitUntil(lambda: "Custom regex · 2" in window.inspector.statistics_text())
+    assert "Identical text · 1" in window.inspector.statistics_text()
+    window.inspector.reset_regex.click()
+    qtbot.waitUntil(lambda: "Pattern (regex) · 3" in window.inspector.statistics_text())
     assert "temperature=99.5" in window.details.toPlainText()
     assert window.splitter.orientation() == Qt.Vertical
     assert window.splitter.widget(0) is window.table
@@ -271,12 +277,12 @@ def test_slow_statistics_do_not_block_details_or_publish_stale_selection(qtbot, 
     started, release = Event(), Event()
     original = QueryRunner.message_statistics
 
-    def delayed(runner, filters, row, now):
+    def delayed(runner, filters, row, now, regex=None):
         if row.message == "old selection":
             started.set()
             if not release.wait(5):
                 raise TimeoutError("Test did not release statistics worker")
-        return original(runner, filters, row, now)
+        return original(runner, filters, row, now, regex)
 
     monkeypatch.setattr(QueryRunner, "message_statistics", delayed)
     send(window, "<14>old selection", "<14>new selection")
