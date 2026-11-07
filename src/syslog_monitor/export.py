@@ -16,7 +16,9 @@ from typing import Callable
 
 from syslog_monitor.config import DEFAULT_BOOT_MARKER
 from syslog_monitor.events import facility_name, severity_name
-from syslog_monitor.query import EventFilter, build_where, highlight_sql, parse_highlights
+from syslog_monitor.query import (
+    EventFilter, build_where, highlight_sql, parse_highlights, register_functions,
+)
 from syslog_monitor.storage import EVENT_COLUMNS, connect
 
 BATCH_SIZE = 1000
@@ -97,6 +99,7 @@ def export_events(db_path: Path, destination: Path, options: ExportOptions, *, n
 
     check_cancelled()
     conn = connect(database, readonly=True)
+    register_functions(conn)
     temporary: Path | None = None
     try:
         conn.set_progress_handler(lambda: int(cancel.is_set()), 1000)

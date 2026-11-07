@@ -49,10 +49,16 @@ def test_color_dialog_accept_and_cancel(qtbot, monkeypatch):
 def test_state_roundtrip_preserves_empty_disabled_order_and_colors(qtbot):
     panel = HighlightPanel()
     qtbot.addWidget(panel)
-    state = [{"text": "Boot", "color": "#123456", "enabled": False, "popup": False},
-             {"text": "", "color": "#abcdef", "enabled": True, "popup": True}]
+    options = {"case_sensitive": False, "whole_word": False, "regex": False}
+    state = [{"text": "Boot", "color": "#123456", "enabled": False, "popup": False, **options},
+             {"text": "", "color": "#abcdef", "enabled": True, "popup": True, **options},
+             {"text": r"a;\d+", "color": "#abcdef", "enabled": True, "popup": True,
+              "case_sensitive": True, "whole_word": True, "regex": True}]
     panel.restore_state(state)
     assert panel.state() == state
+    legacy = [{key: value for key, value in rule.items() if key not in options} for rule in state[:2]]
+    panel.restore_state(legacy)
+    assert panel.state() == state[:2]
     panel.restore_state([])
     assert panel.rules() == ()
 

@@ -43,6 +43,8 @@ display a warning.
 - **Receive and keep logs** over UDP, TCP, or TLS, even while minimized to the tray.
 - **Filter messages** by severity, facility, sender, application, or text.
 - **Search with context** without hiding the messages around each match.
+- **Match like in VS Code**: search, filter rules and highlights offer **Aa** (match case),
+  **ab** (whole word) and **.\*** (regular expression) toggles.
 - **Explore the timeline**: click to jump to a time, or drag to zoom into a period.
 - **Highlight important text** with custom colors and optional notifications.
 - **Export logs** to CSV or JSONL, including a device's messages since its last reboot.
@@ -85,6 +87,7 @@ The middle of the sidebar contains a separate **Go to latest** / **Autoscroll to
 |---|---|
 | **Ctrl+F** | Focus search |
 | **Enter / F3**, **Shift+F3** | Next older / previous newer search match |
+| **Alt+C / Alt+W / Alt+R** | Toggle match case / whole word / regex in the focused text field |
 | **F5** | Go to the latest matching messages |
 | **Ctrl+C**, **Ctrl+A** | Copy selected / select all loaded rows |
 | **Ctrl+L** | Clear the view |

@@ -288,10 +288,10 @@ or the CI runner's temporary directory.
 | **Autoscroll to newest** | New messages appear at the top. Turning autoscroll off freezes only the view; receiving and storage continue. Scrolling into history automatically disables autoscroll. **Go to latest / F5** jumps once without changing this option. |
 | **Clear view** | Button beside the time range or **Ctrl+L**. Opens Logs, sets the custom range start to the current time and enables autoscroll. The table, minimap, counters, and search then show only new messages, and the status bar displays the start time. **No data is deleted.** Choose another range or uncheck “From” to show older messages again. |
 | **Time range** | Above the minimap, beside “Reset zoom.” Choose 15 minutes through 30 days, “All,” or **“From / To…”**. Either date/time boundary is optional: From only shows messages from that time through now (including live updates); To only shows messages up to the selected time. To includes the displayed second. If From is later than To, the values are corrected automatically. Switching to a custom range uses the current range as its initial value. The range applies to the table, search, and minimap. The minimap fits the actual data range within the selected bounds. |
-| **Search** | Field below the filters. **Enter/F3** or “▼ Older” moves to the next older match; **Shift+F3** or “▲ Newer” moves to the next newer match. **Ctrl+F** focuses the field. Search starts at the newest match, selects the matching row, and shows surrounding messages even if they do not match the query. It searches beyond the currently loaded table page. Active filters and time range still apply; search does not affect the minimap. Searching pauses the view, but receiving and storage continue. At the end, “No more matches” is shown; results do not wrap around. |
+| **Search** | Field below the filters. **Enter/F3** or “▼ Older” moves to the next older match; **Shift+F3** or “▲ Newer” moves to the next newer match. **Ctrl+F** focuses the field. Search starts at the newest match, selects the matching row, and shows surrounding messages even if they do not match the query. The **Aa**, **ab**, and **.\*** toggles next to the field set match case, whole word, and regular expression ([Match options](#match-options)). It searches beyond the currently loaded table page. Active filters and time range still apply; search does not affect the minimap. Searching pauses the view, but receiving and storage continue. At the end, “No more matches” is shown; results do not wrap around. |
 | **Severity** | Click a group in the colored legend to show only that group: Error, Warning, Info, Debug, or Unknown. Click the only selected group again or click “All” to reset the severity filter. Ctrl+click adds or removes groups. Info includes Notice and Info; Error includes Emergency through Error. Active groups are bold. Counts reflect the active filters. The severity menu also provides individual severities and presets. |
 | **Facility** | Separate selector, in addition to severity and text rules. |
-| **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Rules appear as compact summaries; click the pencil to edit a rule. Combine rules using AND or OR; non-matching messages are hidden. |
+| **Filter rules** | Add rules for text, message, sender/IP, host, or application using contains, does not contain, equals, or does not equal. For “Text (all fields),” “contains all words” and its negative form are also available. Rules appear as compact summaries; click the pencil to edit a rule. Each rule has its own match options (**Aa**, **ab**, **.\***). Combine rules using AND or OR; non-matching messages are hidden. |
 | **Select / copy** | Shift+click selects a range; Ctrl+click selects individual rows. Ctrl+A selects all currently loaded rows; Ctrl+C copies the selection. Right-click the table to see these shortcuts in the context menu. Selecting multiple rows automatically disables autoscroll. |
 | **Table columns** | Right-click the table header to show or hide columns. At least one column stays visible, and your selection is saved. |
 | **Zoom** | **Ctrl++** / **Ctrl+-** or **Ctrl+mouse wheel** zooms the interface from 75% to 200%; **Ctrl+0** resets to 100%. The zoom level is saved. |
@@ -387,8 +387,9 @@ match count. Tooltips explain the count scope and priority; disabled or empty ru
 “–”, and “…” appears while counts are being updated. The legend and highlight summary
 show totals; tooltips show counts per rule across all stored messages in the active
 filters and time range, not just the loaded table page. Highlights search the full
-message using a literal substring (ASCII case-insensitive; no wildcards or regular
-expressions). Changes apply even when the view is paused. Text, colors, order, and
+message using a literal substring by default (ASCII case-insensitive; no wildcards).
+The match options described under [Match options](#match-options) are available per
+rule. Changes apply even when the view is paused. Text, colors, order, match options, and
 enabled state are saved. Popup notifications can be enabled separately for each rule.
 Existing highlight text is migrated as a purple rule when upgrading.
 
@@ -416,12 +417,28 @@ storage usage, and a per-second live rate for received, stored, and dropped mess
 Window size, columns, filters, and time range (including From/To) are saved.
 
 Text, sender, and application filters use shared rule rows. Previously saved filters
-are converted to rules when loaded. Search supports **Words** and **Substring** modes.
-Words search and the “Text (all fields) contains all words” rule use SQLite FTS5 across
-message, host, application, and structured data. Matching is case- and accent-insensitive;
-word prefixes are sufficient (`disk fail` matches “Disk failure”). Punctuation is
-ignored. Substring search matches arbitrary text in message, host, and application, but
-can be slower over long time ranges.
+are converted to rules when loaded. Search matches text in message, host, and
+application as a literal substring by default; it can be slower over long time ranges.
+The “Text (all fields) contains all words” rule uses SQLite FTS5 across message, host,
+application, and structured data. Matching is case- and accent-insensitive; word
+prefixes are sufficient (`disk fail` matches “Disk failure”). Punctuation is ignored.
+
+#### Match options
+
+Like in VS Code, search, every filter rule (except “contains all words”), and every
+highlight rule have three toggles next to the text field. With the field focused,
+**Alt+C**, **Alt+W**, and **Alt+R** toggle them:
+
+| Toggle | Meaning |
+|---|---|
+| **Aa** Match Case | Distinguish upper and lower case. Without it, plain text compares ASCII case-insensitively and regular expressions use Python's Unicode case folding. |
+| **ab** Match Whole Word | The match must not be preceded or followed by a letter, digit, or `_` (`port 22` does not match “port 220”). Ignored by “equals”. |
+| **.\*** Use Regular Expression | Python `re` syntax with search semantics; use `^`/`$` to anchor. “equals” must match the whole value. In highlight rules `;` is not a separator in regex mode; use `\|` for alternatives. |
+
+An invalid regular expression gets a red border, its tooltip shows the error, and the
+rule is ignored until it is fixed. Without options the fast `LIKE` path is used; whole
+word and regex are evaluated in Python and scan more slowly over long time ranges. The
+options are saved with filters, highlights, and the search field.
 
 Filter rules apply to the table, search, and minimap. The full rule group is combined
 with severity, facility, and time range using AND. Rules marked **Always AND** remain
@@ -430,8 +447,8 @@ required even when the rest of the rules use OR:
 This preserves the meaning of older saved filters that used OR. Example: application
 equals `web` AND message does not contain `heartbeat`. Empty rules are inactive.
 Negative rules also allow messages that do not have the selected field. “Text (all
-fields)” includes message, host, application, and structured data. Values are literal,
-not regular expressions; `%` and `_` are not wildcards. Like substring search, matching
+fields)” includes message, host, application, and structured data. Without the regex
+option values are literal; `%` and `_` are not wildcards. Without “Match Case”, matching
 is case-insensitive only for ASCII. Word search handles Unicode through FTS5. Rules are
 saved with the other filters.
 
@@ -577,8 +594,9 @@ the GUI responsive.
 - The parser tolerates RFC 5424/3164. Non-conforming messages are still stored and
   marked with a parser note.
 - Messages are sorted by reception time (newest first), not by the sender's timestamp.
-- Substring search is case-insensitive only for ASCII characters (`café` and `cafe` differ).
-  Word search does not have this limitation.
+- Plain search, filters, and highlights without “Match Case” are case-insensitive only
+  for ASCII characters (`café` and `CAFÉ` differ). Word search and regular expressions
+  do not have this limitation.
 - If the receive queue fills (20,000 messages), UDP or TCP messages are dropped and
   counted in the status bar; TCP and TLS senders are not notified of these application-level drops.
 - TLS without a client CA encrypts the connection but does not authenticate senders.

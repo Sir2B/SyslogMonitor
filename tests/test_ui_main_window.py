@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 from syslog_monitor.config import Settings
 from syslog_monitor.service import CaptureService
-from syslog_monitor.query import FilterRule, HighlightRule, QueryRunner
+from syslog_monitor.query import FilterRule, HighlightRule, MatchOptions, QueryRunner
 from syslog_monitor.ui.main_window import CUSTOM_RANGE_INDEX, DEFAULT_RANGE_INDEX, PAGE_SIZE, MainWindow, Timings
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.writer import WriterTuning
@@ -1103,7 +1103,6 @@ def test_search_and_text_filter_can_be_combined(qtbot, window):
     window.filter_bar.add_rule(FilterRule("text", "words", "keep"))
     qtbot.waitUntil(lambda: window.model.rowCount() == 2)
     window.search_text.setText("e_17")
-    window.search_mode.setCurrentIndex(1)
     window.find_text()
     qtbot.waitUntil(lambda: selected_message(window) == "keep needle: code_17")
     assert {window.model.row_at(i).message for i in range(window.model.rowCount())} == {
@@ -1239,6 +1238,50 @@ def test_search_keyboard_shortcuts(qtbot, window):
     qtbot.waitUntil(lambda: selected_message(window) == "needle older")
     qtbot.keyClick(window.search_text, Qt.Key_F3, Qt.ShiftModifier)
     qtbot.waitUntil(lambda: selected_message(window) == "needle newer")
+
+
+def test_search_match_options_regex_case_word_and_persistence(qtbot, window, tmp_path):
+    send(window, "<14>Port 22 up", "<14>port 220 down", "<14>context")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 3)
+    window.search_text.setText("port 22")
+    window.search_text.setFocus()
+    qtbot.keyClick(window.search_text, Qt.Key_W, Qt.AltModifier)
+    assert window.search_options.word_button.isChecked()
+    window.find_text()
+    qtbot.waitUntil(lambda: selected_message(window) == "Port 22 up")
+    window.search_options.case_button.click()
+    window.find_text()
+    qtbot.waitUntil(lambda: window.search_result.text() == "No matches")
+    window.search_options.set_options(MatchOptions(regex=True))
+    window.search_text.setText(r"port \d{3}")
+    window.find_text()
+    qtbot.waitUntil(lambda: selected_message(window) == "port 220 down")
+    window.search_text.setText("port (")
+    assert window.search_options.error() and "border" in window.search_text.styleSheet()
+    window.find_text()
+    assert window.search_result.text() == "Invalid regex"
+    window._save_ui_state()
+    window.search_options.set_options(MatchOptions())
+    window._restore_ui_state()
+    assert window.search_options.options() == MatchOptions(regex=True)
+
+
+def test_highlight_rule_match_options_color_rows_and_navigate(qtbot, window):
+    row = window.highlights.rule_rows[0]
+    row.value.setText(r"err\w+")
+    row.match_options.regex_button.click()
+    window.highlights.select_rule(row)
+    send(window, "<14>errors found", "<14>err only", "<14>ERRORS again")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 3)
+    colored = {window.model.row_at(i).message for i in range(3)
+               if window.model.data(window.model.index(i, 6), Qt.BackgroundRole).color().name()
+               == row.rule().color}
+    assert colored == {"errors found", "ERRORS again"}
+    qtbot.mouseClick(window.highlights.next_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: selected_message(window) == "ERRORS again")
+    assert "· .*" in row.summary_button.text()
+    stored = window.highlights.state()[0]
+    assert stored["regex"] is True and stored["case_sensitive"] is False
 
 
 def test_firewall_status_is_shown_and_rechecked(qtbot, tmp_path):

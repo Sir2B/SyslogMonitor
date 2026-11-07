@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 
 import pytest
 
@@ -6,8 +7,9 @@ from conftest import BASE_MS, make_event
 
 from syslog_monitor.events import SeverityClass
 from syslog_monitor.query import (
-    TEXT_MODE_SUBSTRING, EventFilter, FilterRule, HighlightRule, QueryRunner, active_highlights,
-    fts_query, highlight_matches, like_pattern, matching_highlight, parse_highlights,
+    TEXT_MODE_SUBSTRING, EventFilter, FilterRule, HighlightRule, MatchOptions, QueryRunner,
+    active_highlights, build_where, fts_query, highlight_matches, like_pattern, match_error,
+    matching_highlight, parse_highlights, text_matches,
 )
 
 def test_negative_rules_and_boolean_group_apply_everywhere(store):
@@ -453,6 +455,102 @@ def test_find_highlight_match_steps_through_separated_terms(store):
     assert older.message == "first alarm"
     assert q.find_highlight_match(f, "alarm; needle", older.cursor) is None
     assert q.find_highlight_match(f, "alarm; needle", older.cursor, newer=True) == newest
+
+
+MESSAGES = ("Error: disk sda1 failed", "error in errorlog", "user.name=bob", "Port 22 up",
+            "port 220 down")
+
+
+@pytest.mark.parametrize(("text", "options", "expected"), [
+    ("error", MatchOptions(), {0, 1}),
+    ("error", MatchOptions(case_sensitive=True), {1}),
+    ("Error", MatchOptions(case_sensitive=True), {0}),
+    ("error", MatchOptions(whole_word=True), {0, 1}),
+    ("errorlog", MatchOptions(whole_word=True), {1}),
+    ("rror", MatchOptions(whole_word=True), set()),
+    ("port 22", MatchOptions(whole_word=True), {3}),
+    ("user.name", MatchOptions(), {2}),
+    ("user.name", MatchOptions(whole_word=True), {2}),
+    ("user.name", MatchOptions(regex=True), {2}),
+    (r"port \d{3}", MatchOptions(regex=True), {4}),
+    (r"^port", MatchOptions(regex=True, case_sensitive=True), {4}),
+    (r"sd[a-z]\d", MatchOptions(regex=True, whole_word=True), {0}),
+    ("err|down", MatchOptions(regex=True, whole_word=True), {4}),
+])
+def test_match_options_sql_and_python_agree(store, text, options, expected):
+    q = fill(store, [make_event(i, message=m) for i, m in enumerate(MESSAGES)])
+    assert {i for i, m in enumerate(MESSAGES) if text_matches(m, text, options)} == expected
+    rule = FilterRule("message", "contains", text, False, options.case_sensitive,
+                      options.whole_word, options.regex)
+    found = {r.message for r in q.fetch_older(EventFilter(rules=(rule,)), None, 20)}
+    assert found == {MESSAGES[i] for i in expected}
+    negated = replace(rule, operator="not_contains")
+    assert {r.message for r in q.fetch_older(EventFilter(rules=(negated,)), None, 20)} == (
+        set(MESSAGES) - found)
+    highlight = HighlightRule(text, case_sensitive=options.case_sensitive,
+                              whole_word=options.whole_word, regex=options.regex)
+    assert {r.message for r in q.fetch_highlighted(EventFilter(), highlight, 20)} == found
+    assert {m for m in MESSAGES if highlight_matches(m, highlight)} == found
+    hit = q.find_match(EventFilter(), text, TEXT_MODE_SUBSTRING, options=options)
+    assert (hit.message if hit else None) == max(found, key=MESSAGES.index, default=None)
+    q.close()
+
+
+def test_equals_with_match_options(store):
+    q = fill(store, [make_event(0, message="Port 22 up"), make_event(1, message="port 22 up\n")])
+    def matching(**options):
+        rule = FilterRule("message", "equals", options.pop("value", "port 22 up"), **options)
+        return {r.id for r in q.fetch_older(EventFilter(rules=(rule,)), None, 20)}
+    assert matching() == {1}
+    assert matching(value="PORT 22 UP") == {1}
+    assert matching(case_sensitive=True, value="Port 22 up") == {1}
+    assert matching(whole_word=True, value="port 22") == set()  # equals ignores whole word
+    assert matching(regex=True, value=r"port \d+ up") == {1}  # \Z: no trailing newline
+    assert matching(regex=True, value=r"port \d+ up\s") == {2}
+    assert matching(regex=True, value=r"port \d+") == set()  # regex must match the whole value
+    q.close()
+
+
+def test_invalid_regex_rules_are_inactive_and_regex_is_not_split():
+    assert match_error("a(b", MatchOptions(regex=True))
+    assert match_error("a(b", MatchOptions()) is None
+    assert match_error("a(b", MatchOptions(whole_word=True)) is None
+    assert parse_highlights("a(b", MatchOptions(regex=True)) == ()
+    assert parse_highlights("a;b", MatchOptions(regex=True)) == ("a;b",)
+    assert parse_highlights("Foo;foo", MatchOptions(case_sensitive=True)) == ("Foo", "foo")
+    assert active_highlights((HighlightRule("a(b", regex=True),)) == ()
+    where, params = build_where(EventFilter(rules=(FilterRule(value="a(b", regex=True),)))
+    assert (where, params) == ("1", [])
+    where, _ = build_where(EventFilter(text="a(b", text_mode=TEXT_MODE_SUBSTRING,
+                                       text_options=MatchOptions(regex=True)))
+    assert where == "0"
+    plain, plain_params = build_where(EventFilter(rules=(FilterRule(value="x"),)))
+    assert "LIKE" in plain and plain_params == ["%x%"]  # default keeps the fast LIKE path
+    words = FilterRule("text", "words", "x", regex=True)
+    assert not words.uses_options and "events_fts" in build_where(EventFilter(rules=(words,)))[0]
+
+
+def test_old_persisted_rules_get_default_match_options():
+    assert FilterRule(**{"field": "message", "operator": "contains", "value": "x",
+                         "required": False}).options == MatchOptions()
+    assert HighlightRule(**{"text": "x", "color": "#000000", "enabled": True,
+                            "popup": True}).options == MatchOptions()
+    with pytest.raises(ValueError):
+        FilterRule(regex="yes")
+    with pytest.raises(ValueError):
+        HighlightRule(whole_word=1)
+
+
+def test_export_supports_regex_rules(tmp_path, store):
+    from syslog_monitor.export import ExportOptions, export_events
+
+    store.insert([make_event(0, message="port 22 up"), make_event(1, message="port x up")])
+    options = ExportOptions(period="custom", filters=EventFilter(
+        start_ms=BASE_MS, end_ms=BASE_MS + 10, rules=(FilterRule(value=r"port \d+", regex=True),)))
+    target = tmp_path / "out.csv"
+    export_events(store.path, target, options, now_ms=BASE_MS + 10)
+    content = target.read_text(encoding="utf-8")
+    assert "port 22 up" in content and "port x up" not in content
 
 
 def test_filtered_time_bounds(store):

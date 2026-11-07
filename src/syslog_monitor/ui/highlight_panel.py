@@ -15,6 +15,7 @@ from syslog_monitor.query import DEFAULT_HIGHLIGHT, HighlightRule, Histogram, ac
 from syslog_monitor.i18n import tr
 from syslog_monitor.ui.flow_layout import FlowLayout
 from syslog_monitor.ui.formatting import format_count
+from syslog_monitor.ui.match_options import MatchOptionsBar, options_label
 from syslog_monitor.ui.palette import highlight_text_color
 
 RULE_COLORS = ("#7b1fa2", "#00796b", "#1565c0", "#f9a825", "#c62828", "#ef6c00")
@@ -44,9 +45,11 @@ class HighlightRow(QWidget):
         self.value = QLineEdit(rule.text, clearButtonEnabled=True)
         self.value.setPlaceholderText(tr("Message contains …"))
         self.value.setToolTip(
-            tr("Literal substring in the message (ASCII, case-insensitive).\n"
-            "Optionally separate multiple strings with ;. Empty rules are inactive.\n"
+            tr("Text in the message; by default literal and case-insensitive (ASCII).\n"
+            "Optionally separate multiple strings with ; (use | in regular expressions).\n"
+            "Empty rules are inactive.\n"
             "When several rules match, the highest active rule takes precedence."))
+        self.match_options = MatchOptionsBar(rule.options, self.value)
         self.color_button = QPushButton()
         self.color_button.setToolTip(tr("Choose highlight color"))
         self.count_label = QLabel("…", textFormat=Qt.PlainText, alignment=Qt.AlignRight | Qt.AlignVCenter)
@@ -72,8 +75,8 @@ class HighlightRow(QWidget):
         editor_layout = QHBoxLayout(self.editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(3)
-        for widget in (self.enabled, self.popup_checkbox, self.value, self.color_button, self.up_button,
-                       self.down_button):
+        for widget in (self.enabled, self.popup_checkbox, self.value, self.match_options,
+                       self.color_button, self.up_button, self.down_button):
             editor_layout.addWidget(widget)
         editor_layout.setStretch(2, 1)
         layout = QVBoxLayout(self)
@@ -83,6 +86,7 @@ class HighlightRow(QWidget):
         self.enabled.toggled.connect(self._rule_changed)
         self.popup_checkbox.toggled.connect(self._rule_changed)
         self.value.textChanged.connect(self._rule_changed)
+        self.match_options.changed.connect(self._rule_changed)
         self.color_button.clicked.connect(self._choose_color)
         self.up_button.clicked.connect(self.move_up_requested)
         self.down_button.clicked.connect(self.move_down_requested)
@@ -111,6 +115,10 @@ class HighlightRow(QWidget):
 
     def _refresh_summary(self) -> None:
         text = self.value.text().strip() or tr("Empty highlight")
+        if self.value.text().strip():
+            text += options_label(self.match_options.options())
+            if self.match_options.error():
+                text += f" · ⚠ {tr('invalid regex')}"
         self.summary_button.setText(text)
         border = "2px" if self._selected else "1px"
         style = "solid" if self.enabled.isChecked() else "dashed"
@@ -129,14 +137,16 @@ class HighlightRow(QWidget):
             self.set_color(color)
 
     def rule(self) -> HighlightRule:
+        options = self.match_options.options()
         return HighlightRule(self.value.text(), self._color, self.enabled.isChecked(),
-                             self.popup_checkbox.isChecked())
+                             self.popup_checkbox.isChecked(), options.case_sensitive,
+                             options.whole_word, options.regex)
 
 
 class HighlightPanel(QWidget):
     changed = Signal()
     selected_rule_changed = Signal(str)
-    find_requested = Signal(str, bool)
+    find_requested = Signal(object, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -176,9 +186,11 @@ class HighlightPanel(QWidget):
     def active_rules(self) -> tuple[HighlightRule, ...]:
         return active_highlights(self.rules())
 
+    def notification_rules(self) -> tuple[HighlightRule, ...]:
+        return tuple(rule for rule in self.active_rules() if rule.popup)
+
     def notification_text(self) -> str:
-        return ";".join(rule.text for rule in self.rules()
-                         if rule.popup and active_highlights((rule,)))
+        return ";".join(rule.text for rule in self.notification_rules())
 
     def invalidate_counts(self) -> None:
         for row in self.rule_rows:
@@ -272,7 +284,7 @@ class HighlightPanel(QWidget):
             return
         rule = self.selected_row.rule()
         if active_highlights((rule,)):
-            self.find_requested.emit(rule.text, newer)
+            self.find_requested.emit(rule, newer)
 
     def move_rule(self, row: HighlightRow, offset: int) -> None:
         old = self.rule_rows.index(row)

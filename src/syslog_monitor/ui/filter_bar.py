@@ -16,6 +16,7 @@ from syslog_monitor.events import FACILITY_NAMES, SEVERITY_NAMES
 from syslog_monitor.i18n import tr
 from syslog_monitor.query import TEXT_MODE_WORDS, EventFilter, FilterRule
 from syslog_monitor.ui.flow_layout import FlowLayout
+from syslog_monitor.ui.match_options import MatchOptionsBar, options_label
 
 log = logging.getLogger(__name__)
 
@@ -66,10 +67,11 @@ class RuleRow(QWidget):
         self.required.setToolTip(tr("This rule must always match, even when rules are combined with OR."))
         self.required.setChecked(rule.required)
         self.value = QLineEdit(placeholderText=tr("Filter value …"), clearButtonEnabled=True)
+        self.match_options = MatchOptionsBar(rule.options, self.value)
         self.editor = QWidget()
         editor_layout = QHBoxLayout(self.editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.field, self.operator, self.value, self.required):
+        for widget in (self.field, self.operator, self.value, self.match_options, self.required):
             editor_layout.addWidget(widget)
         editor_layout.setStretch(2, 1)
         self.editor.hide()
@@ -85,13 +87,23 @@ class RuleRow(QWidget):
         self.operator.currentIndexChanged.connect(self._rule_changed)
         self.value.textChanged.connect(self._rule_changed)
         self.required.toggled.connect(self._rule_changed)
+        self.match_options.changed.connect(self._rule_changed)
         self.remove_button.clicked.connect(self.remove_requested)
         self.edit_button.clicked.connect(self.edit_requested)
+        self._update_options_enabled()
         self._update_summary()
 
     def rule(self) -> FilterRule:
+        options = self.match_options.options()
         return FilterRule(self.field.currentData(), self.operator.currentData(), self.value.text(),
-                          self.required.isChecked())
+                          self.required.isChecked(), options.case_sensitive, options.whole_word,
+                          options.regex)
+
+    def _update_options_enabled(self) -> None:
+        words = self.operator.currentData() in ("words", "not_words")
+        self.match_options.setEnabled(not words)
+        self.match_options.setToolTip(
+            tr("Word search is case-insensitive and ignores these options.") if words else "")
 
     def _update_operators(self) -> None:
         self.operator.blockSignals(True)
@@ -113,13 +125,17 @@ class RuleRow(QWidget):
         self._rule_changed()
 
     def _rule_changed(self, *_args) -> None:
+        self._update_options_enabled()
         self._update_summary()
         self.changed.emit()
 
     def _update_summary(self) -> None:
         value = self.value.text().strip() or "…"
+        rule = self.rule()
+        flags = options_label(rule.options) if rule.uses_options else ""
         required = f" · {tr('Always AND')}" if self.required.isChecked() else ""
-        text = f"{self.field.currentText()} {self.operator.currentText()}: {value}{required}"
+        invalid = f" · ⚠ {tr('invalid regex')}" if self.match_options.error() else ""
+        text = f"{self.field.currentText()} {self.operator.currentText()}: {value}{flags}{required}{invalid}"
         self.summary_button.setText(text)
         self.summary_button.setToolTip(text)
 

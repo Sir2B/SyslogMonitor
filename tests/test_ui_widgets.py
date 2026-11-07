@@ -190,6 +190,30 @@ def test_restore_ignores_invalid_saved_rules(qtbot):
     assert bar.current_filter().rules == (FilterRule("app", "not_equals", "db"),)
 
 
+def test_filter_rule_match_options_roundtrip_and_validate(qtbot):
+    bar = FilterBar()
+    qtbot.addWidget(bar)
+    row = bar.add_rule(FilterRule(value="Disk", case_sensitive=True))
+    assert row.match_options.case_button.isChecked()
+    assert "· Aa" in row.summary_button.text()
+    row.match_options.regex_button.click()
+    row.value.setText("disk (")
+    assert "invalid regex" in row.summary_button.text()
+    assert "border" in row.value.styleSheet()
+    row.value.setText(r"disk \d+")
+    assert row.value.styleSheet() == ""
+    assert row.rule() == FilterRule(value=r"disk \d+", case_sensitive=True, regex=True)
+    other = FilterBar()
+    qtbot.addWidget(other)
+    other.restore_state(bar.state())
+    assert other.current_filter().rules == bar.current_filter().rules
+    row.field.setCurrentIndex(row.field.findData("text"))
+    row.operator.setCurrentIndex(row.operator.findData("words"))
+    assert not row.match_options.isEnabled()
+    assert row.value.styleSheet() == ""
+    assert "· Aa" not in row.summary_button.text()
+
+
 def test_legacy_filters_migrate_without_changing_or_semantics(qtbot, store):
     events = [
         make_event(0, message="disk failure", app_name="web", severity=3),

@@ -52,6 +52,11 @@ def regex_matches(pattern: str, message: str | None) -> bool:
     return message is not None and _compiled_regex(pattern).search(message) is not None
 
 
+def register_functions(conn) -> None:
+    """SQL functions required by :func:`build_where` and :func:`highlight_sql`."""
+    conn.create_function("regex_matches", 2, regex_matches, deterministic=True)
+
+
 def graph_bucket_ms(duration_ms: int) -> int:
     for size in _GRAPH_BUCKETS_MS:
         if duration_ms <= size * GRAPH_MAX_BUCKETS:
@@ -103,29 +108,93 @@ HIGHLIGHT_SEPARATOR = ";"
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
-def parse_highlights(text: str) -> tuple[str, ...]:
-    """Split ``"a; b;;A"`` into unique, non-empty texts (case-insensitive duplicates removed)."""
+@dataclass(frozen=True, slots=True)
+class MatchOptions:
+    """VS Code-style text matching: Match Case, Match Whole Word, Use Regular Expression."""
+    case_sensitive: bool = False
+    whole_word: bool = False
+    regex: bool = False
+
+    def __post_init__(self) -> None:
+        if not all(isinstance(value, bool) for value in (self.case_sensitive, self.whole_word, self.regex)):
+            raise ValueError("Invalid match options")
+
+    @property
+    def needs_regex(self) -> bool:
+        return self.regex or self.whole_word
+
+
+PLAIN_MATCH = MatchOptions()
+
+
+def match_regex(text: str, options: MatchOptions, *, full: bool = False) -> str:
+    """Python regex for ``text`` under ``options``; ``full`` matches the whole value."""
+    pattern = text if options.regex else re.escape(text)
+    if full:
+        pattern = f"^(?:{pattern})\\Z"
+    elif options.whole_word:
+        pattern = f"(?<!\\w)(?:{pattern})(?!\\w)"
+    return pattern if options.case_sensitive else f"(?i){pattern}"
+
+
+def match_error(text: str, options: MatchOptions) -> str | None:
+    """Error message if ``text`` is not a valid pattern under ``options``, else ``None``."""
+    if not options.regex or not text.strip():
+        return None
+    try:
+        _compiled_regex(match_regex(text.strip(), options))
+    except re.error as error:
+        return str(error)
+    return None
+
+
+def text_matches(value: str | None, text: str, options: MatchOptions = PLAIN_MATCH) -> bool:
+    """Python counterpart of :func:`match_sql` for a ``contains`` comparison."""
+    value = value or ""
+    if options.needs_regex:
+        return _compiled_regex(match_regex(text, options)).search(value) is not None
+    if options.case_sensitive:
+        return text in value
+    return text.translate(_ASCII_LOWER) in value.translate(_ASCII_LOWER)
+
+
+def match_sql(columns: tuple[str, ...], text: str, options: MatchOptions = PLAIN_MATCH,
+              *, equals: bool = False) -> tuple[str, list[str]]:
+    """SQL expression true if any column contains (or equals) ``text``.
+
+    Plain options keep the index-free but fast ``LIKE``; whole word and regex
+    use the Python ``regex_matches`` function registered on the connection.
+    """
+    if options.regex or (options.whole_word and not equals):
+        template = "regex_matches(?, COALESCE({column}, ''))"
+        value = match_regex(text, options, full=equals)
+    elif equals:
+        collation = "BINARY" if options.case_sensitive else "NOCASE"
+        template, value = f"COALESCE({{column}}, '') = ? COLLATE {collation}", text
+    elif options.case_sensitive:
+        template, value = "instr(COALESCE({column}, ''), ?) > 0", text
+    else:
+        template, value = "COALESCE({column}, '') LIKE ? ESCAPE '\\'", like_pattern(text)
+    sql = " OR ".join(template.format(column=column) for column in columns)
+    return (f"({sql})" if len(columns) > 1 else sql), [value] * len(columns)
+
+
+def parse_highlights(text: str, options: MatchOptions = PLAIN_MATCH) -> tuple[str, ...]:
+    """Split ``"a; b;;A"`` into unique, non-empty texts.
+
+    Duplicates are removed case-insensitively unless matching is case-sensitive.
+    A regular expression is never split, so ``;`` keeps its literal meaning there
+    (use ``|`` for alternatives).
+    """
+    if options.regex:
+        text = text.strip()
+        return (text,) if text and match_error(text, options) is None else ()
     result: dict[str, str] = {}
     for part in text.split(HIGHLIGHT_SEPARATOR):
         part = part.strip()
         if part:
-            result.setdefault(part.translate(_ASCII_LOWER), part)
+            result.setdefault(part if options.case_sensitive else part.translate(_ASCII_LOWER), part)
     return tuple(result.values())
-
-
-def highlight_matches(message: str, text: str) -> bool:
-    """True if any ``;``-separated text occurs literally (ASCII case-insensitive like SQLite LIKE)."""
-    lowered = message.translate(_ASCII_LOWER)
-    return any(part.translate(_ASCII_LOWER) in lowered for part in parse_highlights(text))
-
-
-def highlight_sql(text: str) -> tuple[str, list[str]]:
-    """SQL boolean expression matching :func:`highlight_matches` (``0`` if nothing to highlight)."""
-    parts = parse_highlights(text)
-    if not parts:
-        return "0", []
-    sql = " OR ".join("message LIKE ? ESCAPE '\\'" for _ in parts)
-    return f"({sql})", [like_pattern(part) for part in parts]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,22 +203,66 @@ class HighlightRule:
     color: str = DEFAULT_HIGHLIGHT_COLOR
     enabled: bool = True
     popup: bool = True
+    case_sensitive: bool = False
+    whole_word: bool = False
+    regex: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(self.text, str) or not isinstance(self.enabled, bool) \
-                or not isinstance(self.popup, bool):
+        if not isinstance(self.text, str) or not all(
+                isinstance(value, bool) for value in (self.enabled, self.popup, self.case_sensitive,
+                                                       self.whole_word, self.regex)):
             raise ValueError("Invalid highlight rule")
         if not isinstance(self.color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", self.color):
             raise ValueError("Highlight color must be #RRGGBB")
 
+    @property
+    def options(self) -> MatchOptions:
+        return MatchOptions(self.case_sensitive, self.whole_word, self.regex)
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        return parse_highlights(self.text, self.options)
+
+
+Highlights = str | HighlightRule | tuple[HighlightRule, ...]
+
+
+def _highlight_rules(highlight: Highlights) -> tuple[HighlightRule, ...]:
+    if isinstance(highlight, str):
+        return (HighlightRule(highlight),)
+    return (highlight,) if isinstance(highlight, HighlightRule) else tuple(highlight)
+
+
+def highlight_matches(message: str, highlight: Highlights) -> bool:
+    """True if any highlight text occurs in ``message``.
+
+    Plain texts compare ASCII case-insensitively like SQLite ``LIKE``.
+    """
+    return any(text_matches(message, part, rule.options)
+               for rule in _highlight_rules(highlight) for part in rule.parts)
+
+
+def highlight_sql(highlight: Highlights) -> tuple[str, list[str]]:
+    """SQL boolean expression matching :func:`highlight_matches` (``0`` if nothing to highlight)."""
+    expressions: list[str] = []
+    params: list[str] = []
+    for rule in _highlight_rules(highlight):
+        for part in rule.parts:
+            sql, values = match_sql(("message",), part, rule.options)
+            expressions.append(sql)
+            params.extend(values)
+    if not expressions:
+        return "0", []
+    return f"({' OR '.join(expressions)})", params
+
 
 def active_highlights(rules: tuple[HighlightRule, ...]) -> tuple[HighlightRule, ...]:
-    return tuple(rule for rule in rules if rule.enabled and parse_highlights(rule.text))
+    return tuple(rule for rule in rules if rule.enabled and rule.parts)
 
 
 def matching_highlight(message: str, rules: tuple[HighlightRule, ...]) -> HighlightRule | None:
     """The first enabled, non-empty matching rule wins."""
-    return next((rule for rule in rules if rule.enabled and highlight_matches(message, rule.text)), None)
+    return next((rule for rule in rules if rule.enabled and highlight_matches(message, rule)), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,12 +271,27 @@ class FilterRule:
     operator: str = "contains"
     value: str = ""
     required: bool = False
+    case_sensitive: bool = False
+    whole_word: bool = False
+    regex: bool = False
 
     def __post_init__(self) -> None:
         if self.field not in RULE_FIELDS or self.operator not in RULE_OPERATORS:
             raise ValueError(f"Invalid filter rule: {self.field}/{self.operator}")
         if self.operator in ("words", "not_words") and self.field != "text":
             raise ValueError("Word search is only available for Text (all fields).")
+        if not all(isinstance(value, bool) for value in (self.required, self.case_sensitive,
+                                                        self.whole_word, self.regex)):
+            raise ValueError("Invalid filter rule options")
+
+    @property
+    def options(self) -> MatchOptions:
+        return MatchOptions(self.case_sensitive, self.whole_word, self.regex)
+
+    @property
+    def uses_options(self) -> bool:
+        """Full-text word operators ignore match options."""
+        return self.operator not in ("words", "not_words")
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +304,7 @@ class EventFilter:
     app: str = ""  # substring of app name
     text: str = ""
     text_mode: str = TEXT_MODE_WORDS
+    text_options: MatchOptions = PLAIN_MATCH  # substring mode only
     rules: tuple[FilterRule, ...] = ()
     rules_match: str = "all"
 
@@ -285,11 +414,13 @@ def build_where(f: EventFilter) -> tuple[str, list]:
         params.append(like_pattern(f.app.strip()))
     if f.text.strip():
         if f.text_mode == TEXT_MODE_SUBSTRING:
-            pattern = like_pattern(f.text.strip())
-            clauses.append(
-                "(message LIKE ? ESCAPE '\\' OR hostname LIKE ? ESCAPE '\\' "
-                "OR app_name LIKE ? ESCAPE '\\')")
-            params += [pattern, pattern, pattern]
+            if match_error(f.text, f.text_options) is not None:
+                clauses.append("0")
+            else:
+                expression, values = match_sql(
+                    ("message", "hostname", "app_name"), f.text.strip(), f.text_options)
+                clauses.append(expression)
+                params += values
         elif (query := fts_query(f.text)) is not None:
             clauses.append("id IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")
             params.append(query)
@@ -305,12 +436,11 @@ def build_where(f: EventFilter) -> tuple[str, list]:
             expression = "id IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)"
             values = [query]
         else:
-            columns = RULE_FIELDS[rule.field]
-            contains = rule.operator in ("contains", "not_contains")
-            comparison = "LIKE ? ESCAPE '\\'" if contains else "= ? COLLATE NOCASE"
-            expression = " OR ".join(f"COALESCE({col}, '') {comparison}" for col in columns)
-            value = like_pattern(rule.value.strip()) if contains else rule.value.strip()
-            values = [value] * len(columns)
+            if match_error(rule.value, rule.options) is not None:
+                continue  # an invalid pattern is inactive, like an empty rule
+            expression, values = match_sql(
+                RULE_FIELDS[rule.field], rule.value.strip(), rule.options,
+                equals=rule.operator in ("equals", "not_equals"))
         if rule.operator.startswith("not_"):
             expression = f"NOT ({expression})"
         if rule.required:
@@ -331,7 +461,7 @@ class QueryRunner:
 
     def __init__(self, db_file: Path) -> None:
         self._conn = connect(db_file, readonly=True)
-        self._conn.create_function("regex_matches", 2, regex_matches, deterministic=True)
+        register_functions(self._conn)
 
     def interrupt(self) -> None:
         self._conn.interrupt()
@@ -368,12 +498,19 @@ class QueryRunner:
         return self.fetch_newer(f, pivot, after), self.fetch_older(f, pivot, before)
 
     def find_match(self, f: EventFilter, text: str, text_mode: str,
-                   cursor: Cursor | None = None, *, newer: bool = False) -> EventRow | None:
-        """Find a text match within the active filters, independently of their text filter."""
+                   cursor: Cursor | None = None, *, newer: bool = False,
+                   options: MatchOptions = PLAIN_MATCH) -> EventRow | None:
+        """Find a text match within the active filters, independently of their text filter.
+
+        ``options`` apply to the substring mode; an invalid regex finds nothing.
+        """
         if not text.strip() or (text_mode == TEXT_MODE_WORDS and fts_query(text) is None):
             return None
+        if text_mode == TEXT_MODE_SUBSTRING and match_error(text, options) is not None:
+            return None
         where, params = build_where(f)
-        search_where, search_params = build_where(EventFilter(text=text, text_mode=text_mode))
+        search_where, search_params = build_where(
+            EventFilter(text=text, text_mode=text_mode, text_options=options))
         matches = f"({where}) AND ({search_where})"
         params += search_params
         if cursor is not None:
@@ -385,14 +522,13 @@ class QueryRunner:
             f"ORDER BY received_at {order}, id {order} LIMIT 1", params)
         return rows[0] if rows else None
 
-    def find_highlight_match(self, f: EventFilter, text: str, cursor: Cursor | None = None,
+    def find_highlight_match(self, f: EventFilter, highlight: Highlights, cursor: Cursor | None = None,
                              *, newer: bool = False) -> EventRow | None:
-        """Find the next row matching any text in a semicolon-separated highlight rule."""
-        parts = parse_highlights(text)
-        if not parts:
+        """Find the next row matching a highlight rule (or semicolon-separated text)."""
+        search_where, search_params = highlight_sql(highlight)
+        if search_where == "0":
             return None
         where, params = build_where(f)
-        search_where, search_params = highlight_sql(text)
         matches = f"({where}) AND ({search_where})"
         params.extend(search_params)
         if cursor is not None:
@@ -418,12 +554,11 @@ class QueryRunner:
         buckets = max(1, buckets)
         span = max(1, end_ms - start_ms)
         where, params = build_where(f.with_time(start_ms, end_ms))
-        rules = active_highlights(
-            (HighlightRule(highlight),) if isinstance(highlight, str) else highlight)
+        rules = active_highlights(_highlight_rules(highlight))
         cases: list[str] = []
         highlight_params: list[str] = []
         for i, rule in enumerate(rules):
-            expr, values = highlight_sql(rule.text)
+            expr, values = highlight_sql(rule)
             cases.append(f"WHEN {expr} THEN {i}")
             highlight_params.extend(values)
         highlight_expr = "CASE " + " ".join(cases) + " ELSE -1 END" if cases else "-1"
@@ -528,7 +663,7 @@ class QueryRunner:
             "WHERE received_at >= ? GROUP BY source_ip ORDER BY 4 DESC LIMIT ?", (since_ms, limit))
         return [SenderSummary(*row) for row in rows]
 
-    def fetch_highlighted(self, f: EventFilter, highlight: str, limit: int,
+    def fetch_highlighted(self, f: EventFilter, highlight: Highlights, limit: int,
                           offset: int = 0) -> list[EventRow]:
         """Rows within ``f`` matching any highlight text, newest first."""
         expr, highlight_params = highlight_sql(highlight)
@@ -545,7 +680,7 @@ class QueryRunner:
         return dict(self._conn.execute(
             f"SELECT severity, COUNT(*) FROM events WHERE {where} GROUP BY severity", params))
 
-    def new_highlights(self, after_id: int, highlight: str, limit: int) -> HighlightBatch:
+    def new_highlights(self, after_id: int, highlight: Highlights, limit: int) -> HighlightBatch:
         """Highlight matches with ``id > after_id`` regardless of the view filter.
 
         ``last_id`` covers every new row (matching or not), so the caller can

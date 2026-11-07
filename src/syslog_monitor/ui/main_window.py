@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
@@ -23,8 +23,8 @@ from syslog_monitor.firewall import FirewallCheck, Level, check_firewalls, curre
 from syslog_monitor.i18n import language, tr
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
-    DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, TEXT_MODE_WORDS, Cursor, EventFilter, HighlightBatch, Histogram,
-    EventRow, HighlightRule, QueryRunner,
+    DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, Cursor, EventFilter, HighlightBatch, Histogram,
+    EventRow, HighlightRule, MatchOptions, QueryRunner,
 )
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
@@ -37,6 +37,7 @@ from syslog_monitor.ui.firewall_status import Checker, FirewallMonitor
 from syslog_monitor.ui.formatting import format_bytes, format_count, format_event_details, format_ts
 from syslog_monitor.ui.highlight_alerts import MAX_LISTED, MIN_INTERVAL_S, HighlightAlerter
 from syslog_monitor.ui.highlight_panel import HighlightPanel
+from syslog_monitor.ui.match_options import MatchOptionsBar
 from syslog_monitor.ui.icons import app_icon
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
 from syslog_monitor.ui.message_inspector import MessageInspector
@@ -224,9 +225,7 @@ class MainWindow(QMainWindow):
             tr("Navigate matches within the active filters without hiding other messages.\n"
                "Ctrl+F: focus this field. Enter/F3: next (older) match; "
                "Shift+F3: previous (newer) match."))
-        self.search_mode = QComboBox()
-        self.search_mode.addItem(tr("Words"), TEXT_MODE_WORDS)
-        self.search_mode.addItem(tr("Substring"), TEXT_MODE_SUBSTRING)
+        self.search_options = MatchOptionsBar(line_edit=self.search_text)
         self.search_previous = QPushButton(tr("▲ Newer"))
         self.search_previous.setToolTip(tr("Previous (newer) match – Shift+F3"))
         self.search_next = QPushButton(tr("▼ Older"))
@@ -237,10 +236,10 @@ class MainWindow(QMainWindow):
         self.search_next.clicked.connect(self.find_text)
         self.search_text.returnPressed.connect(self.find_text)
         self.search_text.textChanged.connect(self._reset_search)
-        self.search_mode.currentIndexChanged.connect(self._reset_search)
+        self.search_options.changed.connect(self._reset_search)
         self._reset_search()
         search_row = QHBoxLayout()
-        for widget in (QLabel(tr("Search:")), self.search_text, self.search_mode,
+        for widget in (QLabel(tr("Search:")), self.search_text, self.search_options,
                        self.search_previous, self.search_next, self.search_result):
             search_row.addWidget(widget)
         search_row.setStretch(1, 3)
@@ -620,7 +619,7 @@ class MainWindow(QMainWindow):
             self._watch_request = self.queries.submit(
                 lambda r: r.max_id(), lambda last: self._apply_highlight_batch(HighlightBatch(last, 0, [])))
             return
-        highlight = self.highlights.notification_text()
+        highlight = self.highlights.notification_rules()
         self._watch_request = self.queries.submit(
             lambda r: r.new_highlights(after, highlight, MAX_LISTED), self._apply_highlight_batch)
 
@@ -780,8 +779,8 @@ class MainWindow(QMainWindow):
         self._highlight_revision += 1
         self._highlight_cursor = None
 
-    def find_highlight(self, text: str, newer: bool = False) -> None:
-        if not text.strip():
+    def find_highlight(self, rule: HighlightRule, newer: bool = False) -> None:
+        if not rule.parts:
             return
         self.set_live(False)
         self.queries.new_generation()
@@ -793,7 +792,7 @@ class MainWindow(QMainWindow):
         self.search_result.setText(tr("Searching highlight matches…"))
 
         def job(runner: QueryRunner):
-            hit = runner.find_highlight_match(f, text, cursor, newer=bool(cursor and newer))
+            hit = runner.find_highlight_match(f, rule, cursor, newer=bool(cursor and newer))
             context = None if hit is None else runner.fetch_context(
                 f, hit.cursor, PAGE_SIZE + 1, PAGE_SIZE // 2 + 1)
             return hit, context
@@ -822,11 +821,15 @@ class MainWindow(QMainWindow):
         self.queries.new_generation()
         self._older_request = self._newer_request = self._live_request = None
         revision = self._search_revision
-        f, mode, cursor = self.list_filter(), self.search_mode.currentData(), self._search_cursor
+        f, options, cursor = self.list_filter(), self.search_options.options(), self._search_cursor
+        if self.search_options.error():
+            self.search_result.setText(tr("Invalid regex"))
+            return
         self.search_result.setText(tr("Searching…"))
 
         def job(runner: QueryRunner):
-            hit = runner.find_match(f, text, mode, cursor, newer=newer if cursor else False)
+            hit = runner.find_match(f, text, TEXT_MODE_SUBSTRING, cursor,
+                                    newer=newer if cursor else False, options=options)
             context = None if hit is None else runner.fetch_context(
                 f, hit.cursor, PAGE_SIZE + 1, PAGE_SIZE // 2 + 1)
             return hit, context
@@ -1440,6 +1443,7 @@ class MainWindow(QMainWindow):
         s.setValue("bottom_inspector_splitter", self.splitter.saveState())
         s.setValue("inspector_visible", self.inspector_action.isChecked())
         s.setValue("statistics_mode", self.inspector.mode)
+        s.setValue("search_options", json.dumps(asdict(self.search_options.options())))
         s.setValue("rules_splitter", self.rules_splitter.saveState())
         s.setValue("columns", self.table.horizontalHeader().saveState())
         s.setValue("visible_columns", json.dumps([
@@ -1489,6 +1493,10 @@ class MainWindow(QMainWindow):
                 restore(value)
         self.inspector_action.setChecked(str(s.value("inspector_visible", True)).lower() == "true")
         self.inspector.set_mode(str(s.value("statistics_mode", "exact")))
+        try:
+            self.search_options.set_options(MatchOptions(**json.loads(s.value("search_options", "{}"))))
+        except (TypeError, ValueError):
+            log.warning("Invalid stored search options")
         stored_visibility = s.value("visible_columns")
         if stored_visibility is not None:
             try:

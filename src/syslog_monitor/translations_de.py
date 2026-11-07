@@ -295,8 +295,15 @@ GERMAN_TRANSLATIONS = {
     "Find previous (newer) match for the selected highlight": "Vorherigen (neueren) Treffer der ausgewählten Markierung suchen",
     "Find next (older) match for the selected highlight": "Nächsten (älteren) Treffer der ausgewählten Markierung suchen",
     "Select this highlight for match navigation": "Diese Markierung für die Treffernavigation auswählen",
-    "Literal substring in the message (ASCII, case-insensitive).\nOptionally separate multiple strings with ;. Empty rules are inactive.\nWhen several rules match, the highest active rule takes precedence.":
-        "Wörtliche Teilzeichenfolge in der Nachricht (ASCII, ohne Beachtung der Groß-/Kleinschreibung).\nMehrere Zeichenfolgen optional mit ; trennen. Leere Regeln sind inaktiv.\nWenn mehrere Regeln zutreffen, hat die höchste aktive Regel Vorrang.",
+    "Text in the message; by default literal and case-insensitive (ASCII).\nOptionally separate multiple strings with ; (use | in regular expressions).\nEmpty rules are inactive.\nWhen several rules match, the highest active rule takes precedence.":
+        "Text in der Nachricht; standardmäßig wörtlich und ohne Beachtung der Groß-/Kleinschreibung (ASCII).\nMehrere Zeichenfolgen optional mit ; trennen (in regulären Ausdrücken | verwenden).\nLeere Regeln sind inaktiv.\nWenn mehrere Regeln zutreffen, hat die höchste aktive Regel Vorrang.",
+    "Match Case": "Groß-/Kleinschreibung beachten",
+    "Match Whole Word": "Nur ganzes Wort suchen",
+    "Use Regular Expression": "Regulären Ausdruck verwenden",
+    "Word search is case-insensitive and ignores these options.":
+        "Die Wortsuche beachtet keine Groß-/Kleinschreibung und ignoriert diese Optionen.",
+    "invalid regex": "ungültige Regex",
+    "Invalid regex": "Ungültige Regex",
     "Choose highlight color": "Markierungsfarbe auswählen",
     "Move up (higher priority)": "Nach oben (höhere Priorität)",
     "Move down (lower priority)": "Nach unten (niedrigere Priorität)",
@@ -358,7 +365,6 @@ GERMAN_TRANSLATIONS = {
     "Stop receiving": "Empfang stoppen",
     "Table columns": "Tabellenspalten",
     "To": "Bis",
-    "Words": "Wörter",
     "Zoom in": "Vergrößern",
     "Zoom out": "Verkleinern",
     "Filter rules": "Filterregeln",
@@ -382,7 +388,6 @@ GERMAN_TRANSLATIONS = {
     "🧹 Clear view": "🧹 Ansicht leeren",
     "▲ Newer": "▲ Neuer",
     "▼ Older": "▼ Älter",
-    "Substring": "Teilzeichenfolge",
     "Severity: all": "Schweregrad: alle",
     "Severity: none": "Schweregrad: keiner",
     "Severity: errors": "Schweregrad: Fehler",
