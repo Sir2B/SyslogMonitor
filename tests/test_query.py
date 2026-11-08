@@ -6,10 +6,12 @@ import pytest
 from conftest import BASE_MS, make_event
 
 from syslog_monitor.events import SeverityClass
+from syslog_monitor.matching import (
+    MatchOptions, like_pattern, match_error, message_regex, regex_matches, text_matches,
+)
 from syslog_monitor.query import (
-    TEXT_MODE_SUBSTRING, EventFilter, FilterRule, HighlightRule, MatchOptions, QueryRunner,
-    active_highlights, build_where, fts_query, highlight_matches, like_pattern, match_error,
-    matching_highlight, parse_highlights, text_matches,
+    TEXT_MODE_SUBSTRING, EventFilter, FilterRule, HighlightRule, QueryRunner,
+    active_highlights, build_where, fts_query, highlight_matches, matching_highlight, parse_highlights,
 )
 
 def test_negative_rules_and_boolean_group_apply_everywhere(store):
@@ -64,15 +66,11 @@ def fill(store, events):
     ("line 1\nnext", "line 2\nnext", True),
 ])
 def test_message_regex_varies_only_numbers(left, right, similar):
-    from syslog_monitor.query import message_regex, regex_matches
-
     assert regex_matches(message_regex(left), left)
     assert regex_matches(message_regex(left), right) == similar
 
 
 def test_message_regex_is_readable():
-    from syslog_monitor.query import message_regex
-
     assert message_regex("temp=24.3 (max 30)") == r"^temp=-?\d+(?:\.\d+)? \(max -?\d+(?:\.\d+)?\)$"
     assert message_regex("plain text") == "^plain text$"
 

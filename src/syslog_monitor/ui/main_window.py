@@ -21,10 +21,11 @@ from syslog_monitor.config import Settings, save_settings
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass, severity_class
 from syslog_monitor.firewall import FirewallCheck, Level, check_firewalls, current_programs, remedy
 from syslog_monitor.i18n import language, tr
+from syslog_monitor.matching import MatchOptions
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
     DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, Cursor, EventFilter, HighlightBatch, Histogram,
-    EventRow, HighlightRule, MatchOptions, QueryRunner,
+    EventRow, HighlightRule, QueryRunner,
 )
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot

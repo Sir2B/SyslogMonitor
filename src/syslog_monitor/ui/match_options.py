@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QToolButton, QWidget
 
 from syslog_monitor.i18n import tr
-from syslog_monitor.query import PLAIN_MATCH, MatchOptions, match_error
+from syslog_monitor.matching import PLAIN_MATCH, MatchOptions, match_error
 
 _BUTTON_STYLE = (
     "QToolButton { border: 1px solid transparent; border-radius: 3px; padding: 0px; }"

@@ -12,7 +12,8 @@ from PySide6.QtWidgets import QApplication
 
 from syslog_monitor.config import Settings
 from syslog_monitor.service import CaptureService
-from syslog_monitor.query import FilterRule, HighlightRule, MatchOptions, QueryRunner
+from syslog_monitor.matching import MatchOptions
+from syslog_monitor.query import FilterRule, HighlightRule, QueryRunner
 from syslog_monitor.ui.main_window import CUSTOM_RANGE_INDEX, DEFAULT_RANGE_INDEX, PAGE_SIZE, MainWindow, Timings
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.writer import WriterTuning
