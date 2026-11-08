@@ -31,7 +31,7 @@ from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
 from syslog_monitor.ui import status_text
 from syslog_monitor.ui.event_model import EventTableModel
-from syslog_monitor.ui.event_table import NEWER_COUNT_LIMIT, EventTable
+from syslog_monitor.ui.event_table import EventTable
 from syslog_monitor.ui.about_dialog import AboutDialog
 from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
@@ -42,6 +42,7 @@ from syslog_monitor.ui.highlight_alerts import MAX_LISTED, HighlightAlerter
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.match_options import MatchOptionsBar
 from syslog_monitor.ui.icons import app_icon
+from syslog_monitor.ui.log_view import MAX_ROWS, PAGE_SIZE, LogView
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
 from syslog_monitor.ui.message_inspector import MessageInspector
 from syslog_monitor.ui.navigation import NavigationRail
@@ -63,10 +64,6 @@ RANGE_PRESETS: tuple[tuple[str, int | None], ...] = (
 DEFAULT_RANGE_INDEX = 3
 CUSTOM_RANGE_INDEX = len(RANGE_PRESETS)  # extra combo entry "From / To"
 DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
-PAGE_SIZE = 500
-MAX_ROWS = 5000
-LIVE_FETCH_LIMIT = 1000
-SCROLL_PREFETCH_ROWS = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,15 +99,9 @@ class MainWindow(QMainWindow):
         self._settings_path = settings_path
         self._ui_state = ui_state
         self._quitting = False
-        self._live = True
         self._zoom: tuple[int, int] | None = None
         self._range_index = DEFAULT_RANGE_INDEX
-        self._paused_at_ms = 0
-        self._older_request: int | None = None
-        self._newer_request: int | None = None
-        self._live_request: int | None = None
         self._hist_request: int | None = None
-        self._adjusting_scroll = False
         self._search_cursor: Cursor | None = None
         self._search_revision = 0
         self._highlight_cursor: Cursor | None = None
@@ -152,7 +143,7 @@ class MainWindow(QMainWindow):
         self._firewall_warned_level = Level.OK
 
         self._timers = []
-        for interval, slot in ((timings.live_ms, self._live_tick),
+        for interval, slot in ((timings.live_ms, self.log_view.tick),
                                (timings.live_ms, self._highlight_watch_tick),
                                (timings.histogram_ms, self._histogram_tick),
                                (timings.status_ms, self._update_status),
@@ -308,12 +299,6 @@ class MainWindow(QMainWindow):
         self.newer_banner = self.table.banner
         self.newer_banner.latest_requested.connect(self.go_to_latest)
         self.newer_banner.autoscroll_requested.connect(lambda: self.set_live(True))
-        self._newer_count_request = None
-        self._newer_count_timer = QTimer(self, singleShot=True, interval=150)
-        self._newer_count_timer.timeout.connect(self._request_newer_count)
-        for signal in (self.model.modelReset, self.model.rowsInserted):
-            signal.connect(lambda *_args: self._newer_count_timer.start()
-                           if not self._live else None)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setStyleSheet(
@@ -345,13 +330,11 @@ class MainWindow(QMainWindow):
         header.customContextMenuRequested.connect(self._show_column_menu)
         for column, width in enumerate((170, 80, 70, 110, 120, 130)):
             self.table.setColumnWidth(column, width)
-        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
-        self._visible_range_timer = QTimer(self, singleShot=True)
-        self._visible_range_timer.timeout.connect(self._update_marker)
-        self.table.viewport().installEventFilter(self)
-        for signal in (self.model.modelReset, self.model.rowsInserted, self.model.rowsRemoved,
-                       self.table.verticalScrollBar().rangeChanged):
-            signal.connect(lambda *_args: self._visible_range_timer.start(0))
+        self.log_view = LogView(self.table, self.model, self.queries, self.list_filter,
+                                self.isVisible, self)
+        self.log_view.live_changed.connect(self._live_changed)
+        self.log_view.reload_requested.connect(self.refresh_all)
+        self.log_view.visible_range_changed.connect(self._update_marker)
         self.table.selectionModel().currentRowChanged.connect(self._on_current_row)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.model.modelReset.connect(self._clear_selected_message)
@@ -510,10 +493,7 @@ class MainWindow(QMainWindow):
         return RANGE_PRESETS[index][1] if index < len(RANGE_PRESETS) else None
 
     def eventFilter(self, watched, event) -> bool:
-        if watched is self.table.viewport():
-            if event.type() == QEvent.Resize:
-                self._visible_range_timer.start(0)
-        elif event.type() in (QEvent.Resize, QEvent.LayoutRequest):
+        if event.type() in (QEvent.Resize, QEvent.LayoutRequest):
             self._rules_height_timer.start(0)
         return super().eventFilter(watched, event)
 
@@ -592,15 +572,10 @@ class MainWindow(QMainWindow):
         self.queries.new_generation()
         self._reset_search()
         self._reset_highlight_navigation()
-        self._older_request = self._newer_request = self._live_request = self._hist_request = None
-        f = self.list_filter()
-        self.queries.submit(lambda r: r.fetch_older(f, None, PAGE_SIZE + 1), self._apply_head)
+        self.log_view.cancel()
+        self._hist_request = None
+        self.log_view.load_head()
         self._request_histogram()
-
-    def _apply_head(self, rows) -> None:
-        self.model.reset_rows(rows[:PAGE_SIZE], has_older=len(rows) > PAGE_SIZE, has_newer=False)
-        self.details.clear()
-        self._scroll_to(0)
 
     def _request_histogram(self) -> None:
         job = self._histogram_job(self.minimap.preferred_buckets())
@@ -699,93 +674,6 @@ class MainWindow(QMainWindow):
         if self._zoom is None and not self.queries.is_pending(self._hist_request) and self.isVisible():
             self._request_histogram()
 
-    @Slot()
-    def _live_tick(self) -> None:
-        if not self._live:
-            if self.isVisible() and not self.queries.is_pending(self._newer_count_request):
-                self._request_newer_count()
-            return
-        if self.queries.is_pending(self._live_request) or not self.isVisible():
-            return
-        cursor = self.model.top_cursor
-        if cursor is None:
-            self.refresh_all()
-            return
-        f = self.list_filter()
-        self._live_request = self.queries.submit(
-            lambda r: r.fetch_newer(f, cursor, LIVE_FETCH_LIMIT), self._apply_live)
-
-    def _apply_live(self, rows) -> None:
-        if not self._live:
-            return
-        if len(rows) >= LIVE_FETCH_LIMIT:
-            self.refresh_all()  # too far behind: start again from the newest rows
-            return
-        self.model.prepend(rows)
-
-    def _request_newer_count(self) -> None:
-        if self._live:
-            return
-        top_row = self.model.row_at(self.table.rowAt(0))
-        top = top_row.cursor if top_row else self.model.top_cursor
-        since_pause: Cursor = (self._paused_at_ms, 0)
-        new_cursor = since_pause if top is None else max(top, since_pause)
-        f = self.list_filter()
-        self._newer_count_request = self.queries.submit(
-            lambda r: (r.count_newer(f, top, NEWER_COUNT_LIMIT),
-                       r.count_newer(f, new_cursor, NEWER_COUNT_LIMIT)),
-            lambda counts: self.newer_banner.set_count(*counts) if not self._live else None)
-
-    def _on_scroll(self, value: int) -> None:
-        if self._adjusting_scroll:
-            return
-        self._update_marker()
-        if not self._live:
-            self._newer_count_timer.start()
-        bar = self.table.verticalScrollBar()
-        if self._live and value > 0:
-            self.live_action.setChecked(False)  # user scrolled away: pause the live view
-        if (value >= bar.maximum() - SCROLL_PREFETCH_ROWS and self.model.has_older
-                and not self.queries.is_pending(self._older_request)):
-            self._request_older()
-        if (value <= SCROLL_PREFETCH_ROWS // 5 and self.model.has_newer and not self._live
-                and not self.queries.is_pending(self._newer_request)):
-            self._request_newer()
-
-    def _request_older(self) -> None:
-        cursor, f = self.model.bottom_cursor, self.list_filter()
-        if cursor is None:
-            return
-        self._older_request = self.queries.submit(
-            lambda r: r.fetch_older(f, cursor, PAGE_SIZE + 1), self._apply_older)
-
-    def _apply_older(self, rows) -> None:
-        removed = self.model.append(rows[:PAGE_SIZE])
-        self.model.has_older = len(rows) > PAGE_SIZE
-        if removed:
-            self._scroll_to(self.table.verticalScrollBar().value() - removed)
-
-    def _request_newer(self) -> None:
-        cursor, f = self.model.top_cursor, self.list_filter()
-        if cursor is None:
-            return
-        self._newer_request = self.queries.submit(
-            lambda r: r.fetch_newer(f, cursor, PAGE_SIZE + 1), self._apply_newer)
-
-    def _apply_newer(self, rows) -> None:
-        has_more = len(rows) > PAGE_SIZE
-        inserted = self.model.prepend(rows[-PAGE_SIZE:])  # the rows closest to the cursor
-        self.model.has_newer = has_more
-        self._scroll_to(self.table.verticalScrollBar().value() + inserted)
-
-    def _scroll_to(self, value: int) -> None:
-        self._adjusting_scroll = True
-        try:
-            self.table.verticalScrollBar().setValue(max(0, value))
-        finally:
-            self._adjusting_scroll = False
-        self._update_marker()
-
     def _update_marker(self) -> None:
         top = self.model.row_at(self.table.rowAt(0))
         bottom_index = self.table.rowAt(self.table.viewport().height() - 1)
@@ -812,7 +700,7 @@ class MainWindow(QMainWindow):
             return
         self.set_live(False)
         self.queries.new_generation()
-        self._older_request = self._newer_request = self._live_request = None
+        self.log_view.cancel()
         self._highlight_revision += 1
         revision = self._highlight_revision
         cursor = self._highlight_cursor
@@ -834,7 +722,7 @@ class MainWindow(QMainWindow):
                                            else tr("No highlight matches"))
                 return
             self._highlight_cursor = hit.cursor
-            self._apply_jump(context, PAGE_SIZE, PAGE_SIZE // 2)
+            self.log_view.show_context(context)
             self.search_result.setText(tr("Highlight match selected"))
 
         self.queries.submit(job, apply)
@@ -847,7 +735,7 @@ class MainWindow(QMainWindow):
             return
         self.set_live(False)
         self.queries.new_generation()
-        self._older_request = self._newer_request = self._live_request = None
+        self.log_view.cancel()
         revision = self._search_revision
         f, options, cursor = self.list_filter(), self.search_options.options(), self._search_cursor
         if self.search_options.error():
@@ -870,28 +758,27 @@ class MainWindow(QMainWindow):
                 self.search_result.setText(tr("No more matches") if cursor else tr("No matches"))
                 return
             self._search_cursor = hit.cursor
-            self._apply_jump(context, PAGE_SIZE, PAGE_SIZE // 2)
+            self.log_view.show_context(context)
             self.search_result.setText(tr("Match selected"))
 
         self.queries.submit(job, apply)
         self._request_histogram()
 
+    @property
+    def _live(self) -> bool:
+        return self.log_view.live
+
     @Slot(bool)
     def set_live(self, live: bool) -> None:
-        if live == self._live:
-            return
-        self._live = live
+        self.log_view.set_live(live)
+
+    def _live_changed(self, live: bool) -> None:
         self.live_action.setChecked(live)
-        self.table.set_banner_visible(not live)
         if live:
             self._zoom = None
             self.reset_zoom_action.setEnabled(False)
             self._update_mode_label()
             self.refresh_all()
-        else:
-            self._paused_at_ms = _now_ms()
-            self.newer_banner.set_count(None)
-            self._newer_count_timer.start()
         self._update_mode_label()
 
     @Slot("qlonglong")
@@ -899,25 +786,9 @@ class MainWindow(QMainWindow):
         self.set_live(False)
         self.queries.new_generation()
         self._reset_search()
-        self._older_request = self._newer_request = self._live_request = None
-        f, before, after = self.list_filter(), PAGE_SIZE, PAGE_SIZE // 2
-        self.queries.submit(lambda r: r.fetch_around(f, time_ms, before + 1, after + 1),
-                            lambda result: self._apply_jump(result, before, after))
+        self.log_view.cancel()
+        self.log_view.load_around(time_ms)
         self._request_histogram()
-
-    def _apply_jump(self, result, before: int, after: int) -> None:
-        newer, older = result
-        rows = newer[-after:] + older[:before]
-        self._adjusting_scroll = True
-        try:
-            self.model.reset_rows(rows, has_older=len(older) > before, has_newer=len(newer) > after)
-            anchor = min(len(newer[-after:]), max(len(rows) - 1, 0))
-            if rows:
-                self.table.selectRow(anchor)
-                self.table.scrollTo(self.model.index(anchor, 0), QAbstractItemView.PositionAtCenter)
-        finally:
-            self._adjusting_scroll = False
-        self._update_marker()
 
     @Slot("qlonglong", "qlonglong")
     def zoom_to(self, start_ms: int, end_ms: int) -> None:
@@ -989,8 +860,7 @@ class MainWindow(QMainWindow):
         self.model.reset_rows([], has_older=False, has_newer=False)
         self.details.clear()
         if not self._live:
-            self._live = True  # avoid a second reload from set_live
-            self.table.set_banner_visible(False)
+            self.log_view.set_live(True, notify=False)  # _range_changed reloads once
             self.live_action.setChecked(True)
         self._range_changed()
 
@@ -1307,7 +1177,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def go_to_latest(self) -> None:
         self.show_page("logs")
-        self._paused_at_ms = _now_ms()  # everything shown now counts as seen
+        self.log_view.mark_seen()
         self._zoom = None
         self.reset_zoom_action.setEnabled(False)
         self.refresh_all()
@@ -1398,7 +1268,7 @@ class MainWindow(QMainWindow):
         for timer in self._timers:
             timer.stop()
         self._highlight_timer.stop()
-        self._visible_range_timer.stop()
+        self.log_view.shutdown()
         self._statistics_timer.stop()
         self.statistics_queries.shutdown()
         self.queries.shutdown()
