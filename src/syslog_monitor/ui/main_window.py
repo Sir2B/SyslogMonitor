@@ -9,10 +9,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QFont, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,     QSplitter,
+    QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QMenu, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -29,6 +29,7 @@ from syslog_monitor.query import (
 )
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
+from syslog_monitor.ui import status_text
 from syslog_monitor.ui.event_model import EventTableModel
 from syslog_monitor.ui.event_table import NEWER_COUNT_LIMIT, EventTable
 from syslog_monitor.ui.about_dialog import AboutDialog
@@ -36,15 +37,15 @@ from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
 from syslog_monitor.ui.filter_bar import ALL_SEVERITIES, FilterBar
 from syslog_monitor.ui.firewall_status import Checker, FirewallMonitor
-from syslog_monitor.ui.formatting import format_bytes, format_count, format_event_details, format_ts
-from syslog_monitor.ui.highlight_alerts import MAX_LISTED, MIN_INTERVAL_S, HighlightAlerter
+from syslog_monitor.ui.formatting import format_count, format_ts
+from syslog_monitor.ui.highlight_alerts import MAX_LISTED, HighlightAlerter
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.match_options import MatchOptionsBar
 from syslog_monitor.ui.icons import app_icon
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
 from syslog_monitor.ui.message_inspector import MessageInspector
 from syslog_monitor.ui.navigation import NavigationRail
-from syslog_monitor.ui.palette import apply_theme, is_dark, status_color
+from syslog_monitor.ui.palette import apply_theme, is_dark
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.ui.settings_dialog import SettingsDialog
 from syslog_monitor.ui.tray import TrayController
@@ -994,13 +995,7 @@ class MainWindow(QMainWindow):
         self._range_changed()
 
     def _update_mode_label(self) -> None:
-        if self._live:
-            text = f"&nbsp;<b style='color:{status_color('#1a7f37')}'>● {tr('Autoscroll on')}</b>"
-            tip = tr("The newest messages appear at the top.")
-        else:
-            text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ {tr('Autoscroll off')}</b>"
-            tip = tr("Autoscroll is off; receiving and storage continue.\n"
-                     "Use the bar above the table to show the newest messages or enable autoscroll.")
+        text, tip = status_text.mode(self._live)
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
             tip += f"\nZoom: {format_ts(self._zoom[0])[:19]} – {format_ts(self._zoom[1])[:19]}"
@@ -1113,38 +1108,10 @@ class MainWindow(QMainWindow):
         rates = self._rate_tracker.update(snap)
         self._show_listener_state(snap)
         self._show_mcp_state()
-        counts = tr("Received {received} · stored {stored} · queued {queued}",
-                    received=format_count(snap.received), stored=format_count(snap.persisted),
-                    queued=format_count(snap.queued))
-        live_rates = tr("Live: {received:.1f}/s received · {stored:.1f}/s stored · {dropped:.1f}/s dropped",
-                        received=rates.received, stored=rates.persisted, dropped=rates.dropped)
-        self.counter_label.setToolTip(f"{counts}\n{live_rates}")
-        if self.zoom_controller.factor > 1.0:
-            self.counter_label.setText(counts)
-        else:
-            self.counter_label.setText(
-                f"{counts}<br><span style='color:{status_color('#555')}'>{live_rates}</span>")
-        losses = snap.dropped_queue_full + snap.dropped_write_error + snap.dropped_tcp_framing
-        if losses:
-            self.counter_label.setText(self.counter_label.text() +
-                                       f" · <b style='color:{status_color('#b00020')}'>{tr('dropped')} {format_count(losses)}</b>")
-        if snap.tcp_connections_rejected:
-            self.counter_label.setText(
-                self.counter_label.text() +
-                f" · <b style='color:{status_color('#b00020')}'>{tr('TCP connections rejected')} "
-                f"{format_count(snap.tcp_connections_rejected)}</b>")
-        if snap.tls_handshake_failures:
-            self.counter_label.setText(
-                self.counter_label.text() +
-                f" · <b style='color:{status_color('#9a6700')}'>{tr('TLS handshakes failed')} "
-                f"{format_count(snap.tls_handshake_failures)}</b>")
-        storage = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(self.service.settings.max_storage_bytes)}"
-        if snap.writer_error:
-            storage = f"<b style='color:{status_color('#b00020')}'>{snap.writer_error}</b> · {storage}"
-        elif snap.storage_budget_exceeded:
-            storage = f"<b style='color:{status_color('#9a6700')}'>{tr('Budget exceeded')}</b> · {storage}"
-        self.storage_label.setText(storage)
-        self.statusBar().clearMessage()
+        text, tip = status_text.counters(snap, rates, compact=self.zoom_controller.factor > 1.0)
+        self.counter_label.setText(text)
+        self.counter_label.setToolTip(tip)
+        self.storage_label.setText(status_text.storage(snap, self.service.settings.max_storage_bytes))
         if self.tray:
             self.tray.update_status(snap)
 
@@ -1152,15 +1119,7 @@ class MainWindow(QMainWindow):
         listening = self.service.listening
         self.listen_action.setChecked(listening)
         self.listen_action.setText(tr("Stop receiving") if listening else tr("Start receiving"))
-        if snap.listener_state == "error":
-            text = f"<b style='color:{status_color('#b00020')}'>{snap.listener_error}</b>"
-            if listening:
-                text += f" · {tr('Still receiving on')} {snap.listener_display_address}"
-        elif listening:
-            text = f"<span style='color:{status_color('#1a7f37')}'>{snap.listener_display_address} {tr('active')}</span>"
-        else:
-            text = f"<span style='color:{status_color('#666')}'>{tr('Receiving stopped')}</span>"
-        self.listener_label.setText(text)
+        self.listener_label.setText(status_text.listener(snap, listening))
 
     def _toggle_listener(self, checked: bool) -> None:
         if checked:
@@ -1181,17 +1140,9 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _apply_firewall(self, check: FirewallCheck) -> None:
         self._firewall_check = check
-        text, color = {
-            Level.OK: (tr("Firewall ✓"), "#1a7f37"),
-            Level.WARNING: (tr("⚠ Firewall: port not allowed"), "#9a6700"),
-            Level.ERROR: (tr("✖ Firewall blocked"), "#b00020"),
-            Level.UNKNOWN: (tr("Firewall ?"), "#666"),
-        }[check.level]
-        weight = "bold" if check.level >= Level.WARNING else "normal"
-        color = status_color(color)
-        self.firewall_label.setText(
-            f"<a href='firewall' style='color:{color};font-weight:{weight};text-decoration:none'>{text}</a>")
-        self.firewall_label.setToolTip("\n".join((check.summary, *check.details, tr("Click for details"))))
+        html, tip = status_text.firewall(check)
+        self.firewall_label.setText(html)
+        self.firewall_label.setToolTip(tip)
         if check.level >= Level.WARNING and check.level > self._firewall_warned_level:
             log.warning("Firewall: %s – %s", check.summary, "; ".join(check.details))
             if self.tray:
@@ -1225,21 +1176,11 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------------- MCP
     def _show_mcp_state(self) -> None:
-        mcp = self.mcp
-        self.mcp_label.setVisible(mcp is not None)
-        if mcp is None or not mcp.enabled:
-            text, color, tip = tr("MCP off"), "#666", tr("MCP server for AI assistants is disabled.")
-        elif mcp.running:
-            text, color = f"MCP ✓ :{mcp.port}", "#1a7f37"
-            tip = tr("MCP server (local only, read-only, no authentication): {url}", url=mcp.url)
-        elif mcp.starting:
-            text, color, tip = "MCP …", "#666", tr("MCP server is starting")
-        else:
-            text, color, tip = "✖ MCP", "#b00020", mcp.error
-        html = f"<a href='mcp' style='color:{status_color(color)};text-decoration:none'>{text}</a>"
+        self.mcp_label.setVisible(self.mcp is not None)
+        html, tip = status_text.mcp(self.mcp)
         if html != self.mcp_label.text():
             self.mcp_label.setText(html)
-            self.mcp_label.setToolTip(f"{tip}\n{tr('Click for details')}")
+            self.mcp_label.setToolTip(tip)
 
     @Slot()
     def show_mcp_details(self, _link: str = "") -> None:
