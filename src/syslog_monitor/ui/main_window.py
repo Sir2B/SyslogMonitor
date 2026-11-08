@@ -25,7 +25,7 @@ from syslog_monitor.matching import MatchOptions
 from syslog_monitor.mcp_server import McpService, client_config
 from syslog_monitor.query import (
     DEFAULT_HIGHLIGHT, TEXT_MODE_SUBSTRING, Cursor, EventFilter, HighlightBatch, Histogram,
-    EventRow, HighlightRule, QueryRunner,
+    HighlightRule, QueryRunner,
 )
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
@@ -42,6 +42,7 @@ from syslog_monitor.ui.highlight_alerts import MAX_LISTED, HighlightAlerter
 from syslog_monitor.ui.highlight_panel import HighlightPanel
 from syslog_monitor.ui.match_options import MatchOptionsBar
 from syslog_monitor.ui.icons import app_icon
+from syslog_monitor.ui.inspector_controller import InspectorController
 from syslog_monitor.ui.log_view import MAX_ROWS, PAGE_SIZE, LogView
 from syslog_monitor.ui.minimap import CLASS_COLORS, MinimapWidget
 from syslog_monitor.ui.message_inspector import MessageInspector
@@ -125,10 +126,6 @@ class MainWindow(QMainWindow):
         self.queries = QueryClient(service.db_path, self)
         self.queries.error.connect(self._on_query_error)
         self.statistics_queries = QueryClient(service.db_path, self)
-        self.statistics_queries.error.connect(self._on_statistics_error)
-        self._selected_stats_row: EventRow | None = None
-        self._statistics_timer = QTimer(self, singleShot=True, interval=100)
-        self._statistics_timer.timeout.connect(self._request_message_statistics)
 
         self._build_ui()
         self._install_zoom_shortcuts()
@@ -335,13 +332,13 @@ class MainWindow(QMainWindow):
         self.log_view.live_changed.connect(self._live_changed)
         self.log_view.reload_requested.connect(self.refresh_all)
         self.log_view.visible_range_changed.connect(self._update_marker)
-        self.table.selectionModel().currentRowChanged.connect(self._on_current_row)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
-        self.model.modelReset.connect(self._clear_selected_message)
 
         self.inspector = MessageInspector()
-        self.inspector.regex_changed.connect(self._set_statistics_regex)
-        self._custom_regex: tuple[int, str] | None = None  # (row id, regex)
+        self.inspector_controller = InspectorController(
+            self.inspector, self.model, self.queries, self.statistics_queries, self.list_filter, self)
+        self.inspector_controller.error.connect(self._on_query_error)
+        self.table.selectionModel().currentRowChanged.connect(self.inspector_controller.select_row)
         self.details = self.inspector.details
         self.statistics = self.inspector.statistics
         self.splitter = QSplitter(Qt.Vertical)
@@ -900,77 +897,6 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(self.model.copy_text(rows))
         self.statusBar().showMessage(tr("Copied {count} rows", count=len(rows)), 5000)
 
-    def _on_current_row(self, current, _previous) -> None:
-        row = self.model.row_at(current.row())
-        self._clear_selected_message()
-        self._selected_stats_row = row
-        if row is None:
-            return
-        self.queries.submit(
-            lambda runner: runner.get_event(row.id),
-            lambda event: self._show_details(event)
-            if self._selected_stats_row is not None and self._selected_stats_row.id == row.id else None)
-        self.inspector.show_statistics_message(tr("Calculating message statistics…"))
-        self._statistics_timer.start(100)
-
-    def _clear_selected_message(self) -> None:
-        self._selected_stats_row = None
-        self.statistics_queries.new_generation()
-        self._statistics_timer.stop()
-        self.inspector.clear()
-
-    def _on_statistics_error(self, message: str) -> None:
-        self.inspector.show_statistics_message(tr("Statistics failed: {message}", message=message))
-        self._on_query_error(message)
-
-    def _set_statistics_regex(self, regex: str | None) -> None:
-        row = self._selected_stats_row
-        if row is None:
-            return
-        self._custom_regex = (row.id, regex) if regex else None
-        self.statistics_queries.new_generation()
-        self._statistics_timer.start(0)
-
-    def _request_message_statistics(self) -> None:
-        row = self._selected_stats_row
-        if row is None:
-            return
-        if self.statistics_queries.busy:
-            self._statistics_timer.start(250)
-            return
-        filters, now = self.list_filter(), _now_ms()
-        regex = self._custom_regex[1] if self._custom_regex and self._custom_regex[0] == row.id else None
-
-        def job(runner):
-            return runner.get_event(row.id), runner.message_statistics(filters, row, now, regex)
-
-        def apply(result):
-            if self._selected_stats_row is None or self._selected_stats_row.id != row.id:
-                return
-            event, stats = result
-            self._show_details(event)
-            if event is None:
-                self.inspector.show_statistics_message(tr("Message no longer exists (deleted by retention)."))
-                return
-            lines = [
-                tr("Same sender and application; active filters and time range (including zoom)."),
-                tr("Sender: {sender} · Application: {app}", sender=row.source_ip, app=row.app_name or "–"),
-                f"{format_ts(stats.start_ms)} – {format_ts(stats.end_ms)}",
-                tr("Regex: {regex}", regex=stats.regex),
-                tr("Only numbers vary; all other characters must match exactly. This is a heuristic, not semantic similarity."),
-                tr("Rates include empty hours. Partial hours are time-weighted; minimum observation window: 1 second. For an open start, use the first matching sender/application event."),
-            ]
-            self.inspector.show_statistics(stats, lines, row.received_at)
-            self._statistics_timer.start(5000)
-
-        self.statistics_queries.submit(job, apply)
-
-    def _show_details(self, event) -> None:
-        if event is None:
-            self.details.setPlainText(tr("Message no longer exists (deleted by retention)."))
-        else:
-            self.inspector.show_event(event)
-
     # ----------------------------------------------------------------- status
     @Slot()
     def _update_status(self) -> None:
@@ -1269,8 +1195,7 @@ class MainWindow(QMainWindow):
             timer.stop()
         self._highlight_timer.stop()
         self.log_view.shutdown()
-        self._statistics_timer.stop()
-        self.statistics_queries.shutdown()
+        self.inspector_controller.shutdown()
         self.queries.shutdown()
         if self.tray:
             self.tray.hide()

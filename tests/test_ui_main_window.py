@@ -290,7 +290,7 @@ def test_statistics_refresh_for_paused_view_without_reloading_rows(qtbot, window
     qtbot.waitUntil(lambda: "Occurrences: 1" in window.inspector.statistics_text())
     send(window, "<14>value 2")
     qtbot.waitUntil(lambda: window.service.snapshot().persisted == 2)
-    window._statistics_timer.start(0)
+    window.inspector_controller.timer.start(0)
     qtbot.waitUntil(lambda: "Pattern (regex) · 2" in window.inspector.statistics_text())
     assert window.model.rowCount() == 1
     assert "value 1" in window.details.toPlainText()
