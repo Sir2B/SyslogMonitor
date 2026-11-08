@@ -11,7 +11,7 @@ from syslog_monitor.service import CaptureService
 from syslog_monitor.query import FilterRule, QueryRunner
 from syslog_monitor.ui.main_window import CUSTOM_RANGE_INDEX, DEFAULT_RANGE_INDEX, PAGE_SIZE, MainWindow
 from syslog_monitor.ui.query_worker import QueryClient
-from ui_test_helpers import FAST, click_severity, send
+from ui_test_helpers import FAST, click_severity, isolated_firewall_checker, send
 
 
 def test_newer_banner_row_replaces_sidebar_scroll_controls(qtbot, window):
@@ -46,6 +46,7 @@ def test_newer_banner_row_replaces_sidebar_scroll_controls(qtbot, window):
     send(window, *[f"<14>fill {i}" for i in range(80)])
     qtbot.waitUntil(lambda: window.model.rowCount() == 84, timeout=5000)
     bar = window.table.verticalScrollBar()
+    qtbot.waitUntil(lambda: bar.maximum() > 0)
     bar.setValue(bar.maximum())  # scrolling into history pauses autoscroll
     above = window.table.rowAt(0)
     assert not window._live and above > 0
@@ -358,7 +359,7 @@ def test_custom_from_to_range_limits_table_and_is_saved(qtbot, window, tmp_path)
     service = CaptureService(tmp_path / "data2", Settings(bind_host="127.0.0.1", port=0))
     win = MainWindow(service, settings_path=tmp_path / "s2.json",
                      ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                     tray_enabled=False, timings=FAST)
+                     tray_enabled=False, timings=FAST, firewall_checker=isolated_firewall_checker)
     try:
         assert win.range_combo.currentIndex() == CUSTOM_RANGE_INDEX
         assert win.custom_bounds() == bounds

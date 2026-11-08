@@ -49,14 +49,14 @@ def window(qtbot, tmp_path):
     from syslog_monitor.service import CaptureService
     from syslog_monitor.ui.main_window import MainWindow
     from syslog_monitor.writer import WriterTuning
-    from ui_test_helpers import FAST
+    from ui_test_helpers import FAST, isolated_firewall_checker
 
     service = CaptureService(tmp_path / "data", Settings(bind_host="127.0.0.1", port=0),
                              tuning=WriterTuning(flush_interval_s=0.05))
     assert service.start_listener()
     win = MainWindow(service, settings_path=tmp_path / "settings.json",
                      ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                     tray_enabled=False, timings=FAST)
+                     tray_enabled=False, timings=FAST, firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(win)
     win.show()
     yield win

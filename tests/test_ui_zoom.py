@@ -55,3 +55,34 @@ def test_filter_dropdown_heights_stay_equal_when_zoomed(qtbot):
     assert bar.severity_button.height() == bar.facility.height() == bar.rules_match.height()
     assert bar.facility.minimumHeight() == round(original_height * 1.5)
     controller.set_zoom(1.0)
+
+
+def test_default_zoom_show_does_not_scan_widgets_but_zoom_change_captures_them(qtbot, monkeypatch):
+    panel = QWidget()
+    layout = QVBoxLayout(panel)
+    button = QPushButton("Zoom")
+    button.setFixedSize(80, 20)
+    layout.addWidget(button)
+    qtbot.addWidget(panel)
+    controller = ZoomController(QApplication.instance(), panel)
+    original = controller._capture_new_widgets
+    captures = []
+
+    def capture():
+        captures.append(True)
+        original()
+
+    monkeypatch.setattr(controller, "_capture_new_widgets", capture)
+    panel.show()
+    QApplication.processEvents()
+    assert not captures
+    assert button.width() == 80
+    controller.set_zoom(1.5)
+    assert len(captures) == 1
+    assert button.minimumWidth() == 120
+    controller.set_zoom(1.0)
+    assert button.minimumWidth() == 80
+    panel.hide()
+    panel.show()
+    QApplication.processEvents()
+    assert len(captures) == 2

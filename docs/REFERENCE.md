@@ -579,6 +579,11 @@ Measured with 2.6 million messages (30 days at 1 message/second):
 
 Queries run in a background thread. A new filter input cancels a running query, keeping
 the GUI responsive.
+Live and newer-message count queries restrict the time index to the cursor timestamp
+as well as comparing the complete `(received_at, id)` cursor. This avoids scanning
+the selected history when no new messages exist, without losing rows that share a
+timestamp. At 100% UI zoom, showing widgets does not trigger a global widget scan;
+baselines are captured before changing zoom.
 
 ## Limitations
 
@@ -635,6 +640,10 @@ down; statistics results for obsolete selections are discarded.
 GUI integration tests are grouped by responsibility: window layout/navigation,
 log view, inspector, search/highlights, and status/settings. They share a real
 capture-service window fixture and traffic/interaction helpers.
+General GUI tests inject a synthetic firewall checker; dedicated firewall tests
+still exercise checker behavior and the real operating-system integration.
+For timing diagnostics, run `python -m pytest -q --durations=30`. GUI tests wait for
+the scrollbar range to be available before testing scroll-triggered autoscroll changes.
 
 ## Selected-message statistics
 

@@ -9,7 +9,7 @@ from syslog_monitor.matching import MatchOptions
 from syslog_monitor.query import FilterRule, HighlightRule, QueryRunner
 from syslog_monitor.ui.main_window import PAGE_SIZE, MainWindow
 from syslog_monitor.writer import WriterTuning
-from ui_test_helpers import FAST, selected_message, send
+from ui_test_helpers import FAST, isolated_firewall_checker, selected_message, send
 
 
 def test_highlight_updates_table_minimap_and_saved_state(qtbot, window):
@@ -48,7 +48,7 @@ def test_popup_only_for_new_live_highlights_even_when_hidden(qtbot, tmp_path):
         time.sleep(0.02)
     win = MainWindow(service, settings_path=tmp_path / "settings.json",
                      ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                     tray_enabled=False, timings=FAST)
+                     tray_enabled=False, timings=FAST, firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(win)
     shown = []
     win.highlight_alerts.show = lambda title, body: shown.append((title, body))

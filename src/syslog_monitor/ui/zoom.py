@@ -80,14 +80,12 @@ class ZoomController(QObject):
         return False
 
     def _apply(self, *, capture_new: bool = True, force: bool = False) -> None:
-        if self._applying:
+        if self._applying or (self._zoom == 1.0 and not force):
             return
         self._applying = True
         try:
             if capture_new:
                 self._capture_new_widgets()
-            if self._zoom == 1.0 and not force:
-                return
             for widget, (font, minimum, maximum) in tuple(self._widget_baselines.items()):
                 if not isValid(widget):
                     del self._widget_baselines[widget]

@@ -379,6 +379,9 @@ class QueryRunner:
 
     def fetch_newer(self, f: EventFilter, cursor: Cursor, limit: int) -> list[EventRow]:
         """The ``limit`` rows directly newer than ``cursor`` (returned newest first)."""
+        # Give SQLite a scalar lower bound for the time index as well as the
+        # complete cursor comparison, which keeps equal timestamps ordered.
+        f = f.with_time(max(f.start_ms, cursor[0]) if f.start_ms is not None else cursor[0], f.end_ms)
         where, params = build_where(f)
         where += " AND (received_at, id) > (?, ?)"
         params += list(cursor)
@@ -489,6 +492,8 @@ class QueryRunner:
 
     def count_newer(self, f: EventFilter, cursor: Cursor | None, limit: int) -> int:
         """Rows newer than ``cursor`` (all rows without one), counted up to ``limit``."""
+        if cursor is not None:
+            f = f.with_time(max(f.start_ms, cursor[0]) if f.start_ms is not None else cursor[0], f.end_ms)
         where, params = build_where(f)
         if cursor is not None:
             where += " AND (received_at, id) > (?, ?)"

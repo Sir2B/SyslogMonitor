@@ -20,6 +20,7 @@ from syslog_monitor.ui.minimap import MinimapWidget
 from syslog_monitor.ui.main_window import MainWindow, Timings
 from syslog_monitor.ui.palette import apply_theme, highlight_text_color, is_dark
 from syslog_monitor.ui.settings_dialog import SettingsDialog
+from ui_test_helpers import isolated_firewall_checker
 
 
 @pytest.fixture
@@ -139,7 +140,8 @@ def test_live_theme_switch_updates_existing_windows_and_styled_children(qtbot, t
     service = CaptureService(tmp_path / "data", Settings(theme="light"))
     window = MainWindow(service, settings_path=tmp_path / "settings.json",
                         ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                        tray_enabled=False, timings=Timings(live_ms=60_000, histogram_ms=60_000))
+                        tray_enabled=False, timings=Timings(live_ms=60_000, histogram_ms=60_000),
+                        firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(window)
     window.resize(1400, 860)
     window.show()
@@ -367,7 +369,7 @@ def test_window_loads_persisted_theme_and_applies_changes_without_restarting_lis
     service = CaptureService(tmp_path / "data", load_settings(path))
     window = MainWindow(service, settings_path=path,
                         ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                        tray_enabled=False)
+                        tray_enabled=False, firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(window)
     try:
         assert is_dark()

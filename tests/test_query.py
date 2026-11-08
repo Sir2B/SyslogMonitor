@@ -332,6 +332,38 @@ def test_paging_is_stable_with_equal_timestamps(store):
     assert q.count_newer(EventFilter(text="m1"), None, 100) == 1
 
 
+def test_newer_queries_preserve_time_bounds_and_equal_timestamp_rows(store):
+    q = fill(store, [make_event(i // 3, message=f"m{i}") for i in range(12)])
+    try:
+        rows = q.fetch_older(EventFilter(), None, 20)
+        cursor = rows[7].cursor
+        for start, end in ((None, None), (BASE_MS, BASE_MS + 3),
+                           (BASE_MS + 2, None), (None, BASE_MS + 1)):
+            f = EventFilter(start_ms=start, end_ms=end)
+            expected = [row for row in reversed(rows) if row.cursor > cursor
+                        and (start is None or row.received_at >= start)
+                        and (end is None or row.received_at < end)]
+            assert q.fetch_newer(f, cursor, 3) == list(reversed(expected[:3]))
+            assert q.count_newer(f, cursor, 3) == min(3, len(expected))
+    finally:
+        q.close()
+
+
+def test_empty_newer_queries_do_not_scan_the_selected_time_range(store):
+    q = fill(store, [make_event(i, message=f"m{i}") for i in range(5000)])
+    try:
+        f = EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 6000)
+        cursor = q.fetch_older(f, None, 1)[0].cursor
+        steps = []
+        q._conn.set_progress_handler(lambda: steps.append(1) or 0, 1)
+        assert q.fetch_newer(f, cursor, 1000) == []
+        assert q.count_newer(f, cursor, 10_000) == 0
+        assert len(steps) < 1000
+    finally:
+        q._conn.set_progress_handler(None, 0)
+        q.close()
+
+
 def test_combined_filters(store):
     q = fill(store, [
         make_event(0, severity=3, source_ip="192.0.2.1", app_name="sshd", message="login failed"),

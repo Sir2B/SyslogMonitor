@@ -4,9 +4,14 @@ import pytest
 from conftest import send_udp
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QTextDocument
+from syslog_monitor.firewall import FirewallCheck, Level
 from syslog_monitor.ui.main_window import Timings
 
 FAST = Timings(live_ms=50, histogram_ms=200, status_ms=100)
+
+
+def isolated_firewall_checker(bind_host, endpoints):
+    return FirewallCheck(Level.OK, "Synthetic firewall result for GUI tests")
 
 
 def click_severity(qtbot, window, link, modifiers=Qt.NoModifier):

@@ -6,7 +6,7 @@ from syslog_monitor.config import Settings
 from syslog_monitor.service import CaptureService
 from syslog_monitor.ui.main_window import MainWindow
 from syslog_monitor.writer import WriterTuning
-from ui_test_helpers import FAST
+from ui_test_helpers import FAST, isolated_firewall_checker
 
 
 def test_listener_toggle(qtbot, window):
@@ -102,7 +102,8 @@ def test_mcp_status_details_and_settings(qtbot, tmp_path, monkeypatch):
     mcp.apply_async(settings).join(30)
     win = MainWindow(service, settings_path=tmp_path / "settings.json",
                      ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                     tray_enabled=False, timings=FAST, mcp=mcp)
+                     tray_enabled=False, timings=FAST, mcp=mcp,
+                     firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(win)
     try:
         assert f"MCP ✓ :{mcp.port}" in win.mcp_label.text()
@@ -231,7 +232,7 @@ def test_gui_applies_tcp_settings_and_keeps_udp_running_on_error(qtbot, tmp_path
     assert service.start_listener()
     win = MainWindow(service, settings_path=tmp_path / "settings.json",
                      ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
-                     tray_enabled=False, timings=FAST)
+                     tray_enabled=False, timings=FAST, firewall_checker=isolated_firewall_checker)
     qtbot.addWidget(win)
     warnings = []
     monkeypatch.setattr(main_window_module.QMessageBox, "warning", lambda *args: warnings.append(args[2]))
