@@ -70,14 +70,12 @@ Use the left sidebar to switch between **Logs**, **Export**, and **Client valida
 **Settings**, **About**, reception and **Quit** are at the bottom. Expand the sidebar
 to see titles, or collapse it to a narrow icon rail; hover an icon for its label.
 Pages keep their state and running jobs while you switch. The app always starts in Logs.
-The middle of the sidebar contains a separate **Go to latest** / **Autoscroll to newest** group.
 **Quit** opens a page where you can minimize and keep receiving or quit completely.
 
 | Control | What it does |
 |---|---|
 | **Receive** | Start or stop reception. Saved messages stay available. |
-| **Autoscroll to newest** | Follow new messages. Scrolling into history turns it off; reception continues. |
-| **Go to latest** | Jump to the newest matching messages once without changing autoscroll. |
+| **Autoscroll** | New messages appear at the top. Scrolling into history turns it off; reception continues. While it is off, a highlighted bar above the first row shows how many matching messages are above the visible rows and how many of them arrived since pausing, and offers **Show newest** (once, F5) and **Enable autoscroll**. |
 | **Time range** | Choose a recent period or set optional From/To boundaries. |
 | **Clear view** | Show messages received from now on. **Nothing is deleted.** |
 | **Table header** | Right-click to show or hide columns. |

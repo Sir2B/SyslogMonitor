@@ -31,9 +31,6 @@ def navigation_icon(name: str, palette: QPalette) -> QIcon:
         "expand": (((8, 5), (15, 12), (8, 19)),),
         "collapse": (((16, 5), (9, 12), (16, 19)),),
         "settings": (),
-        "latest": (((5, 17), (12, 10), (19, 17)), ((5, 11), (12, 4), (19, 11)),
-                   ((5, 3), (19, 3))),
-        "autoscroll": (((5, 10), (12, 3), (19, 10)), ((12, 3), (12, 21))),
     }
     strokes = paths[name]
     icon = QIcon()

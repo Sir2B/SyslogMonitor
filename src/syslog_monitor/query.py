@@ -592,6 +592,16 @@ class QueryRunner:
         where, params = build_where(f)
         return self._conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
 
+    def count_newer(self, f: EventFilter, cursor: Cursor | None, limit: int) -> int:
+        """Rows newer than ``cursor`` (all rows without one), counted up to ``limit``."""
+        where, params = build_where(f)
+        if cursor is not None:
+            where += " AND (received_at, id) > (?, ?)"
+            params += list(cursor)
+        return self._conn.execute(
+            f"SELECT COUNT(*) FROM (SELECT 1 FROM events WHERE {where} LIMIT ?)",
+            params + [limit]).fetchone()[0]
+
     def message_statistics(self, f: EventFilter, row: EventRow, now_ms: int,
                            regex: str | None = None) -> MessageStatistics:
         """One snapshot, same sender/app, exact text and a regex family.

@@ -47,8 +47,20 @@ GERMAN_TRANSLATIONS = {
     "Autoscroll off": "Autoscroll aus",
     "Start receiving": "Empfang starten",
     "Stop receiving": "Empfang stoppen",
-    "Autoscroll is off; receiving and storage continue.\nUse “Go to latest” once or enable autoscroll.":
-        "Autoscroll ist aus; Empfang und Speicherung laufen weiter.\nEinmal „Zum neuesten Eintrag“ verwenden oder Autoscroll aktivieren.",
+    "Autoscroll is off; receiving and storage continue.\n"
+    "Use the bar above the table to show the newest messages or enable autoscroll.":
+        "Autoscroll ist aus; Empfang und Speicherung laufen weiter.\n"
+        "Über die Leiste oberhalb der Tabelle die neuesten Einträge anzeigen oder Autoscroll aktivieren.",
+    "▲ Show newest": "▲ Neueste anzeigen",
+    "Jump to the newest matching messages once (F5). Autoscroll stays off.":
+        "Einmal zu den neuesten passenden Einträgen springen (F5). Autoscroll bleibt aus.",
+    "Enable autoscroll": "Autoscroll aktivieren",
+    "Jump to the newest messages and keep following new ones.":
+        "Zu den neuesten Einträgen springen und neuen Nachrichten weiter folgen.",
+    "no newer messages": "keine neueren Nachrichten",
+    "1 message above": "1 Nachricht darüber",
+    "{count} messages above": "{count} Nachrichten darüber",
+    "{count} new since pausing": "davon {count} neu seit Pause",
     "Logs": "Logs",
     "Export": "Export",
     "Client validation": "Clientprüfung",
@@ -463,8 +475,6 @@ GERMAN_TRANSLATIONS = {
     "No highlight matches": "Keine Markierungstreffer",
     "No more highlight matches": "Keine weiteren Markierungstreffer",
     "No more matches": "Keine weiteren Treffer",
-    "Paused — {count} new messages stored since pausing":
-        "Pausiert — seit der Pause {count} neue Nachrichten gespeichert",
     "Query error: {message}": "Abfragefehler: {message}",
     "Reading requires no administrator rights; nothing is changed.":
         "Zum Auslesen sind keine Administratorrechte erforderlich; es wird nichts geändert.",

@@ -12,7 +12,7 @@ from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QTableView,
+    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,     QSplitter,
     QMenu, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -29,6 +29,7 @@ from syslog_monitor.query import (
 from syslog_monitor.service import CaptureService
 from syslog_monitor.stats import RateTracker, StatsSnapshot
 from syslog_monitor.ui.event_model import EventTableModel
+from syslog_monitor.ui.event_table import NEWER_COUNT_LIMIT, EventTable
 from syslog_monitor.ui.about_dialog import AboutDialog
 from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
@@ -102,7 +103,7 @@ class MainWindow(QMainWindow):
         self._live = True
         self._zoom: tuple[int, int] | None = None
         self._range_index = DEFAULT_RANGE_INDEX
-        self._persisted_at_pause = 0
+        self._paused_at_ms = 0
         self._older_request: int | None = None
         self._newer_request: int | None = None
         self._live_request: int | None = None
@@ -300,8 +301,17 @@ class MainWindow(QMainWindow):
         self._highlight_timer = QTimer(self, singleShot=True, interval=300)
         self._highlight_timer.timeout.connect(self._request_histogram)
         self.highlights.changed.connect(self._highlight_changed)
-        self.table = QTableView()
+        self.table = EventTable()
         self.table.setModel(self.model)
+        self.newer_banner = self.table.banner
+        self.newer_banner.latest_requested.connect(self.go_to_latest)
+        self.newer_banner.autoscroll_requested.connect(lambda: self.set_live(True))
+        self._newer_count_request = None
+        self._newer_count_timer = QTimer(self, singleShot=True, interval=150)
+        self._newer_count_timer.timeout.connect(self._request_newer_count)
+        for signal in (self.model.modelReset, self.model.rowsInserted):
+            signal.connect(lambda *_args: self._newer_count_timer.start()
+                           if not self._live else None)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setStyleSheet(
@@ -404,9 +414,6 @@ class MainWindow(QMainWindow):
             ("validation", self.diagnostics_action),
         ):
             self.sidebar.add_item(name, action)
-        self.sidebar.add_stretch()
-        self.sidebar.add_item("latest", self.latest_action, page=False)
-        self.sidebar.add_item("autoscroll", self.live_action, page=False)
         self.sidebar.add_stretch()
         self.sidebar.add_item("receive", self.listen_action, page=False)
         self.sidebar.add_item("settings", self.settings_action)
@@ -692,7 +699,11 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _live_tick(self) -> None:
-        if not self._live or self.queries.is_pending(self._live_request) or not self.isVisible():
+        if not self._live:
+            if self.isVisible() and not self.queries.is_pending(self._newer_count_request):
+                self._request_newer_count()
+            return
+        if self.queries.is_pending(self._live_request) or not self.isVisible():
             return
         cursor = self.model.top_cursor
         if cursor is None:
@@ -710,10 +721,25 @@ class MainWindow(QMainWindow):
             return
         self.model.prepend(rows)
 
+    def _request_newer_count(self) -> None:
+        if self._live:
+            return
+        top_row = self.model.row_at(self.table.rowAt(0))
+        top = top_row.cursor if top_row else self.model.top_cursor
+        since_pause: Cursor = (self._paused_at_ms, 0)
+        new_cursor = since_pause if top is None else max(top, since_pause)
+        f = self.list_filter()
+        self._newer_count_request = self.queries.submit(
+            lambda r: (r.count_newer(f, top, NEWER_COUNT_LIMIT),
+                       r.count_newer(f, new_cursor, NEWER_COUNT_LIMIT)),
+            lambda counts: self.newer_banner.set_count(*counts) if not self._live else None)
+
     def _on_scroll(self, value: int) -> None:
         if self._adjusting_scroll:
             return
         self._update_marker()
+        if not self._live:
+            self._newer_count_timer.start()
         bar = self.table.verticalScrollBar()
         if self._live and value > 0:
             self.live_action.setChecked(False)  # user scrolled away: pause the live view
@@ -854,13 +880,16 @@ class MainWindow(QMainWindow):
             return
         self._live = live
         self.live_action.setChecked(live)
+        self.table.set_banner_visible(not live)
         if live:
             self._zoom = None
             self.reset_zoom_action.setEnabled(False)
             self._update_mode_label()
             self.refresh_all()
         else:
-            self._persisted_at_pause = self.service.snapshot().persisted
+            self._paused_at_ms = _now_ms()
+            self.newer_banner.set_count(None)
+            self._newer_count_timer.start()
         self._update_mode_label()
 
     @Slot("qlonglong")
@@ -959,6 +988,7 @@ class MainWindow(QMainWindow):
         self.details.clear()
         if not self._live:
             self._live = True  # avoid a second reload from set_live
+            self.table.set_banner_visible(False)
             self.live_action.setChecked(True)
         self._range_changed()
 
@@ -968,7 +998,8 @@ class MainWindow(QMainWindow):
             tip = tr("The newest messages appear at the top.")
         else:
             text = f"&nbsp;<b style='color:{status_color('#9a6700')}'>⏸ {tr('Autoscroll off')}</b>"
-            tip = tr("Autoscroll is off; receiving and storage continue.\nUse “Go to latest” once or enable autoscroll.")
+            tip = tr("Autoscroll is off; receiving and storage continue.\n"
+                     "Use the bar above the table to show the newest messages or enable autoscroll.")
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
             tip += f"\nZoom: {format_ts(self._zoom[0])[:19]} – {format_ts(self._zoom[1])[:19]}"
@@ -1112,12 +1143,7 @@ class MainWindow(QMainWindow):
         elif snap.storage_budget_exceeded:
             storage = f"<b style='color:{status_color('#9a6700')}'>{tr('Budget exceeded')}</b> · {storage}"
         self.storage_label.setText(storage)
-        if not self._live:
-            new = snap.persisted - self._persisted_at_pause
-            self.statusBar().showMessage(tr("Paused — {count} new messages stored since pausing",
-                                            count=format_count(new)))
-        else:
-            self.statusBar().clearMessage()
+        self.statusBar().clearMessage()
         if self.tray:
             self.tray.update_status(snap)
 
@@ -1339,6 +1365,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def go_to_latest(self) -> None:
         self.show_page("logs")
+        self._paused_at_ms = _now_ms()  # everything shown now counts as seen
         self._zoom = None
         self.reset_zoom_action.setEnabled(False)
         self.refresh_all()

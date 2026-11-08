@@ -327,6 +327,11 @@ def test_paging_is_stable_with_equal_timestamps(store):
     assert [r.message for r in seen] == [f"m{i}" for i in reversed(range(10))]
     newer = q.fetch_newer(f, seen[5].cursor, 2)
     assert [r.message for r in newer] == [seen[3].message, seen[4].message]
+    assert q.count_newer(f, seen[5].cursor, 100) == 5
+    assert q.count_newer(f, seen[5].cursor, 3) == 3
+    assert q.count_newer(f, seen[0].cursor, 100) == 0
+    assert q.count_newer(f, None, 100) == 10
+    assert q.count_newer(EventFilter(text="m1"), None, 100) == 1
 
 
 def test_combined_filters(store):

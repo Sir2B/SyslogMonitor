@@ -55,7 +55,7 @@ def test_client_checks_dialog_keeps_normal_receiver_unchanged(qtbot, window):
 def test_sidebar_navigation_is_compact_expandable_and_stateful(qtbot, window):
     assert window.current_page == "logs"
     assert list(window.sidebar.buttons) == [
-        "logs", "export", "validation", "latest", "autoscroll", "receive", "settings", "about", "quit"]
+        "logs", "export", "validation", "receive", "settings", "about", "quit"]
     collapsed_width = window.sidebar.width()
     compact_icon = window.sidebar.buttons["logs"].iconSize()
     assert all(not button.icon().isNull() for button in window.sidebar.buttons.values())
@@ -103,22 +103,46 @@ def test_sidebar_stays_expanded_across_zoom_and_page_creation(qtbot, window):
         window.zoom_controller.set_zoom(1.0)
 
 
-def test_log_controls_are_in_separate_middle_sidebar_group_without_top_toolbar(window):
+def test_newer_banner_row_replaces_sidebar_scroll_controls(qtbot, window):
     from PySide6.QtWidgets import QToolBar
 
     assert not window.findChildren(QToolBar)
-    assert window.sidebar.buttons["latest"].defaultAction() is window.latest_action
-    assert window.sidebar.buttons["autoscroll"].defaultAction() is window.live_action
-    layout = window.sidebar.widget().layout()
-    latest_index = layout.indexOf(window.sidebar.buttons["latest"])
-    autoscroll_index = layout.indexOf(window.sidebar.buttons["autoscroll"])
-    assert layout.itemAt(latest_index - 1).spacerItem() is not None
-    assert layout.itemAt(autoscroll_index + 1).spacerItem() is not None
     assert window.log_page.layout().itemAt(0).widget() is window.rules_splitter
-    window.sidebar.buttons["autoscroll"].click()
-    assert not window._live
-    window.sidebar.buttons["latest"].click()
-    assert not window._live and window.current_page == "logs"
+    banner = window.newer_banner
+    assert window._live and banner.isHidden()
+    send(window, "<14>first", "<14>second")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 2)
+    window.set_live(False)
+    assert window.table.banner_visible and not banner.isHidden()
+    header = window.table.horizontalHeader()
+    assert banner.geometry().top() >= header.geometry().bottom()
+    assert header.geometry().top() <= window.table.contentsRect().top()
+    assert banner.width() == window.table.viewport().width()
+    assert window.table.viewport().geometry().top() >= banner.geometry().bottom()
+    qtbot.waitUntil(lambda: banner.count == 0)
+    assert "no newer messages" in banner.label.text()
+    send(window, "<14>third", "<14>fourth")
+    qtbot.waitUntil(lambda: banner.count == 2, timeout=5000)
+    assert banner.new == 2
+    assert "2 messages above" in banner.label.text() and "2 new since pausing" in banner.label.text()
+    assert window.model.rowCount() == 2
+    banner.latest_button.click()
+    qtbot.waitUntil(lambda: window.model.rowCount() == 4)
+    assert not window._live and window.table.banner_visible
+    qtbot.waitUntil(lambda: banner.count == 0 and banner.new == 0)
+    banner.autoscroll_button.click()
+    assert window._live and window.live_action.isChecked() and banner.isHidden()
+    send(window, *[f"<14>fill {i}" for i in range(80)])
+    qtbot.waitUntil(lambda: window.model.rowCount() == 84, timeout=5000)
+    bar = window.table.verticalScrollBar()
+    bar.setValue(bar.maximum())  # scrolling into history pauses autoscroll
+    above = window.table.rowAt(0)
+    assert not window._live and above > 0
+    qtbot.waitUntil(lambda: banner.count == above and banner.new == 0, timeout=5000)
+    send(window, "<14>late")
+    qtbot.waitUntil(lambda: banner.count == above + 1 and banner.new == 1, timeout=5000)
+    window.clear_view()
+    assert window._live and not window.table.banner_visible
 
 
 def test_quit_page_distinguishes_minimize_and_exit(qtbot, window, monkeypatch):
@@ -783,7 +807,7 @@ def test_pause_keeps_storing_and_live_resumes(qtbot, window):
     qtbot.wait(300)
     assert window.model.rowCount() == 1  # view frozen
     assert window.service.snapshot().persisted == 3
-    qtbot.waitUntil(lambda: "2 new messages" in window.statusBar().currentMessage(), timeout=5000)
+    qtbot.waitUntil(lambda: window.newer_banner.count == 2, timeout=5000)
     window.live_action.setChecked(True)
     qtbot.waitUntil(lambda: window.model.rowCount() == 3, timeout=5000)
 
