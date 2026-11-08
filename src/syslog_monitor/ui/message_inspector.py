@@ -327,25 +327,28 @@ class MessageInspector(QWidget):
         reported = event.reported_time_text or "–"
         if event.reported_time_utc is not None:
             reported += f" → {format_ts(event.reported_time_utc)} ({tr('local')})"
+        notes = ", ".join(tr(ISSUE_LABELS.get(issue, issue)) for issue in event.issues) or tr("none")
+        # Related values are stacked in columns: sender, application, times.
         rows = [
             ((tr("Source"), f"{event.source_ip}:{event.source_port}"),
-             (tr("Reported host"), event.hostname)),
-            ((tr("Application"), event.app_name), ("PID / MsgID", f"{event.procid or '–'} / {event.msgid or '–'}")),
-            ((tr("Received"), format_ts(event.received_at)),
+             (tr("Application"), event.app_name),
+             (tr("Received"), format_ts(event.received_at))),
+            ((tr("Reported host"), event.hostname),
+             ("PID / MsgID", f"{event.procid or '–'} / {event.msgid or '–'}"),
              (tr("Sender time"), reported)),
             ((tr("Severity"), f"{tr(severity_name(event.severity))} ({event.severity if event.severity is not None else '–'})"),
-             (tr("Facility"), f"{facility_name(event.facility)} ({event.facility if event.facility is not None else '–'})")),
+             (tr("Facility"), f"{facility_name(event.facility)} ({event.facility if event.facility is not None else '–'})"),
+             (tr("Format"), event.format)),
         ]
-        table = "".join("<tr>" + "".join(
-            f"<td><b>{value(label)}</b></td><td>{value(text)}</td>" for label, text in row)
+        spacer = "<td width='18'></td>"
+        table = "".join("<tr>" + spacer.join(
+            f"<td><b>{value(label)}</b>&nbsp;&nbsp;</td><td>{value(text)}</td>" for label, text in row)
             + "</tr>" for row in rows)
-        notes = ", ".join(tr(ISSUE_LABELS.get(issue, issue)) for issue in event.issues) or tr("none")
         extra = f"<p><b>{tr('Structured Data')}:</b> {value(event.structured_data)}</p>" if event.structured_data else ""
         self.details.setHtml(
             "<style>p { margin-top: 3px; margin-bottom: 3px; }</style>"
-            f"<table width='100%' cellspacing='0' cellpadding='1'>{table}</table>"
-            f"<p><b>{tr('Format')}:</b> {value(event.format)} &nbsp; "
-            f"<b>{tr('Parser notes')}:</b> {value(notes)}</p>"
+            f"<table cellspacing='0' cellpadding='1'>{table}</table>"
+            f"<p><b>{tr('Parser notes')}:</b> {value(notes)}</p>"
             f"<p><b>{tr('Message')}:</b><br>{value(event.message).replace(chr(10), '<br>')}</p>"
             + extra +
             f"<small>{escape(tr('Raw data ({count} bytes)', count=len(event.raw)))}</small>")
