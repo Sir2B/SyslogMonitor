@@ -609,6 +609,7 @@ src/syslog_monitor/
   receiver.py    UDP, TCP, and TLS receiver threads → queue
   writer.py      Batch writer thread, retention/budget, retries
   storage.py     SQLite schema, migrations, deletion logic
+  matching.py    Shared text matching, regex patterns and SQLite matching functions
   query.py       Read queries, filters → SQL, histogram
   export.py      Snapshot-based, streaming CSV/JSONL export
   service.py     CaptureService connects receiver, writer, and store
@@ -617,10 +618,23 @@ src/syslog_monitor/
   mcp_server.py  Background-thread MCP server (Streamable HTTP, 127.0.0.1)
   app.py         Entry point: logging, single-instance lock, startup
   ui/            Qt layer: main window, table, minimap, filters, tray, dialogs
+    main_window.py          Layout, navigation, filters, time range and orchestration
+    log_view.py             Table loading, paging, autoscroll and newer-message counts
+    inspector_controller.py Selected-message details and periodic statistics queries
+    message_inspector.py    Bottom detail/statistics widgets and graph
+    status_text.py          Status-bar text formatting
 ```
 
 Core logic (`parser`, `storage`, `query`, `writer`, `service`) does not depend on Qt and
 can be tested without the GUI. The GUI reads through `QueryRunner` in a dedicated thread.
+`LogView` owns the paging requests and autoscroll state. `InspectorController` uses
+a separate query worker for statistics, so a slow count does not block loading the
+selected message's details. Both controllers stop their timers when the window shuts
+down; statistics results for obsolete selections are discarded.
+
+GUI integration tests are grouped by responsibility: window layout/navigation,
+log view, inspector, search/highlights, and status/settings. They share a real
+capture-service window fixture and traffic/interaction helpers.
 
 ## Selected-message statistics
 

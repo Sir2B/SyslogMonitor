@@ -41,6 +41,29 @@ def store(tmp_path: Path):
     s.close()
 
 
+@pytest.fixture
+def window(qtbot, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from syslog_monitor.config import Settings
+    from syslog_monitor.service import CaptureService
+    from syslog_monitor.ui.main_window import MainWindow
+    from syslog_monitor.writer import WriterTuning
+    from ui_test_helpers import FAST
+
+    service = CaptureService(tmp_path / "data", Settings(bind_host="127.0.0.1", port=0),
+                             tuning=WriterTuning(flush_interval_s=0.05))
+    assert service.start_listener()
+    win = MainWindow(service, settings_path=tmp_path / "settings.json",
+                     ui_state=QSettings(str(tmp_path / "ui.ini"), QSettings.IniFormat),
+                     tray_enabled=False, timings=FAST)
+    qtbot.addWidget(win)
+    win.show()
+    yield win
+    win.shutdown()
+    service.shutdown()
+
+
 def send_udp(port: int, *payloads: bytes) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         for payload in payloads:
