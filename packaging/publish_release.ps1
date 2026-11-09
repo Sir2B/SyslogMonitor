@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$DistributionDir,
     [Parameter(Mandatory)][string]$Screenshot,
-    [string]$ScreenshotGalleryDir = ""
+    [string]$ScreenshotGalleryDir = "",
+    [string]$GalleryRemote = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -98,8 +99,11 @@ if (-not ([string]$release.body).Contains($imageUrl)) {
 # The README gallery lives on a separate branch so the release assets stay limited
 # to the packages and a single preview image. One force-pushed commit keeps it small.
 if ($gallery.Count -gt 0) {
-    if (-not $env:GH_TOKEN) {
-        throw "GH_TOKEN is required to publish the screenshot gallery."
+    if (-not $GalleryRemote) {
+        if (-not $env:GH_TOKEN) {
+            throw "GH_TOKEN is required to publish the screenshot gallery."
+        }
+        $GalleryRemote = "https://x-access-token:$($env:GH_TOKEN)@github.com/$repository.git"
     }
     $branchDir = Join-Path ([System.IO.Path]::GetTempPath()) "syslogmonitor-screenshots-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $branchDir | Out-Null
@@ -113,8 +117,7 @@ if ($gallery.Count -gt 0) {
         if ($LASTEXITCODE -ne 0) {
             throw "Could not commit the screenshot gallery."
         }
-        $remote = "https://x-access-token:$($env:GH_TOKEN)@github.com/$repository.git"
-        & git -C $branchDir push --quiet --force $remote screenshots
+        & git -C $branchDir push --quiet --force $GalleryRemote screenshots
         if ($LASTEXITCODE -ne 0) {
             throw "Could not push the screenshot gallery."
         }
