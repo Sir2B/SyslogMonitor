@@ -12,14 +12,14 @@ Search logs, spot errors on a timeline, and highlight messages that matter.
 
 <table>
   <tr>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-light.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-light.png" alt="Syslog Monitor main window" width="280"></a><br><sub>Logs</sub></td>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-dark.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-dark.png" alt="Syslog Monitor in dark mode" width="280"></a><br><sub>Dark mode</sub></td>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-highlights.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-highlights.png" alt="Edit a highlight rule" width="280"></a><br><sub>Highlights</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-light.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-light.png" alt="Syslog Monitor main window" width="280"></a><br><sub>Logs</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-history.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-history.png" alt="Scrolled history with new-message banner" width="280"></a><br><sub>History</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-analysis.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-analysis.png" alt="Message frequency analysis" width="280"></a><br><sub>Analysis</sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-columns.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-columns.png" alt="Show or hide columns" width="280"></a><br><sub>Columns</sub></td>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-settings.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-settings.png" alt="Listener and appearance settings" width="280"></a><br><sub>Settings</sub></td>
-    <td align="center"><a href="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-export.png"><img src="https://github.com/Sir2B/SyslogMonitor/releases/latest/download/screenshot-export.png" alt="Export messages" width="280"></a><br><sub>Export</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-similar.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-similar.png" alt="Similar messages in the inspector" width="280"></a><br><sub>Similar messages</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-highlights.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-highlights.png" alt="Edit a highlight rule" width="280"></a><br><sub>Highlights</sub></td>
+    <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-settings.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-settings.png" alt="Listener and appearance settings" width="280"></a><br><sub>Settings</sub></td>
   </tr>
 </table>
 

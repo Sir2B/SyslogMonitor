@@ -141,11 +141,27 @@ def _wait(app: QApplication, condition, timeout_s: float = 30.0) -> None:
         time.sleep(0.02)
 
 
+VIEWS = ("main", "columns", "highlights", "settings", "export", "history", "analysis", "similar")
+GALLERY = (
+    ("light", "light", "main"), ("history", "dark", "history"),
+    ("analysis", "light", "analysis"), ("similar", "dark", "similar"),
+    ("highlights", "light", "highlights"), ("settings", "dark", "settings"),
+)
+
+
+def _send(port: int, payloads: list[bytes]) -> None:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        for payload in payloads:
+            sock.sendto(payload, ("127.0.0.1", port))
+
+
 def render(output: Path, width: int = 1400, height: int = 860, *,
            theme: str = "system", view: str = "main") -> Path:
     if theme not in ("system", "light", "dark"):
         raise ValueError(f"Unknown theme: {theme}")
-    if view not in ("main", "columns", "highlights", "settings", "export"):
+    if view not in VIEWS:
         raise ValueError(f"Unknown view: {view}")
     app = QApplication.instance() or QApplication(sys.argv[:1])
     set_language("en")
@@ -182,6 +198,39 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
             elif view in ("settings", "export"):
                 window.sidebar.set_expanded(True)
                 window.show_page(view)
+            elif view == "history":
+                # Scrolled into history: the banner row reports messages above and new arrivals.
+                bar = window.table.verticalScrollBar()
+                app.processEvents()
+                bar.setValue(bar.maximum() // 3)
+                scrolled = bar.value() > 0
+                rng = random.Random(7)
+                late = [(DEVICES[i], sev, msg) for i, sev, msg in (
+                    (2, 6, "cycle time 9 ms, jitter 87 us"), (4, 6, "temperature=24.4C humidity=41%"),
+                    (0, 6, "eth1: rx 5120 packets, tx 4980 packets"))]
+                now = time.time_ns() // 1_000_000
+                _send(service.bound_port, [_datagram(device, sev, msg, now, rng) for device, sev, msg in late])
+                if scrolled:
+                    _wait(app, lambda: (window.newer_banner.new or 0) >= len(late))
+                window.table.selectRow(window.table.rowAt(window.table.viewport().height() // 2))
+            elif view == "analysis":
+                from syslog_monitor.analysis import MODE_SIMILAR
+
+                window.show_page("analysis")
+                page = window._analysis_page
+                page.similarity.setValue(60)
+                page.mode.setCurrentIndex(page.mode.findData(MODE_SIMILAR))
+                page.analyze()
+                _wait(app, lambda: page.report is not None and page.report.mode == MODE_SIMILAR
+                      and page.report.similarity == 0.6 and not page.busy)
+            elif view == "similar":
+                from syslog_monitor.ui.message_inspector import MODE_SIMILAR
+
+                window.table.selectRow(1)
+                window.inspector.set_mode(MODE_SIMILAR)
+                window.inspector.set_similarity(0.75)
+                _wait(app, lambda: window.inspector._stats is not None
+                      and window.inspector._stats.similarity == 0.75 and window.inspector.common.text())
             for _ in range(20):
                 app.processEvents()
                 time.sleep(0.02)
@@ -212,18 +261,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=1400)
     parser.add_argument("--height", type=int, default=860)
     parser.add_argument("--theme", choices=("system", "light", "dark"), default="system")
-    parser.add_argument("--view", choices=("main", "columns", "highlights", "settings", "export"),
-                        default="main")
+    parser.add_argument("--view", choices=VIEWS, default="main")
     parser.add_argument("--gallery-dir", type=Path,
-                        help="Also render light/dark views, menus, and dialogs into this directory")
+                        help="Also render the README gallery views into this directory")
     args = parser.parse_args(argv)
     print(render(args.output, args.width, args.height, theme=args.theme, view=args.view))
     if args.gallery_dir is not None:
-        for name, theme, view in (
-            ("light", "light", "main"), ("dark", "dark", "main"),
-            ("columns", "dark", "columns"), ("highlights", "light", "highlights"),
-            ("settings", "light", "settings"), ("export", "dark", "export"),
-        ):
+        for name, theme, view in GALLERY:
             print(render(args.gallery_dir / f"screenshot-{name}.png", args.width, args.height,
                          theme=theme, view=view))
     return 0

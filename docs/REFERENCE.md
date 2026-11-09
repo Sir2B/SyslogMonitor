@@ -252,8 +252,9 @@ Pushing a `v*` tag runs `.github/workflows/release.yml` on Windows. The workflow
 and builds the tagged source with `packaging/build.ps1`, creates the GitHub release, and
 attaches both the installer and the portable ZIP described above. It also renders the main
 window with deterministic demo traffic (`packaging/make_screenshot.py`), uploads
-`screenshot.png`, and embeds it in the release notes. The README gallery shows the latest
-release's screenshots; none of these generated files need to be committed to Git.
+`screenshot.png`, and embeds it at reduced width in the release notes. The README gallery
+images are pushed to the separate `screenshots` branch instead of the release, so a
+release only lists the two packages and one preview image.
 
 Before creating a tag, set the same version in `pyproject.toml` and
 `src/syslog_monitor/__init__.py` (for example, `1.2.3` for tag `v1.2.3`). The workflow
@@ -265,17 +266,17 @@ workflow supplies it while rendering the tagged application.
 
 To render a screenshot locally, run `python packaging\make_screenshot.py`
 (output: `dist\screenshot.png`). Use `--theme light` or `--theme dark` to select
-an appearance and `--view columns`, `--view highlights`, `--view settings`, or
-`--view export` to show controls and dialogs. For example:
+an appearance and `--view columns`, `--view highlights`, `--view settings`, `--view export`,
+`--view history`, `--view analysis`, or `--view similar` to show controls and dialogs. For example:
 
 ```powershell
 python packaging\make_screenshot.py --theme dark --view columns --output dist\screenshots\screenshot-columns.png
 ```
 
-The README gallery links to release assets, not files in Git. Generate all variants
+The README gallery links to the `screenshots` branch. Generate all variants
 with `python packaging\make_screenshot.py --gallery-dir dist\screenshots`.
-The release workflow generates and uploads the gallery automatically when supported
-by the tagged source; older tags keep their single screenshot. Use the native Qt
+The release workflow generates the gallery and force-pushes it as a single commit to
+the `screenshots` branch when supported by the tagged source; older tags keep their single screenshot. Use the native Qt
 platform plugin for readable Windows fonts. Generated images stay in ignored `dist\`
 or the CI runner's temporary directory.
 

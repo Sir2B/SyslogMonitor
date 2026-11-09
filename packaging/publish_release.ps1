@@ -83,7 +83,7 @@ $imageUrl = "https://github.com/$repository/releases/download/$encodedTag/screen
 if (-not ([string]$release.body).Contains($imageUrl)) {
     $notes = New-TemporaryFile
     try {
-        $image = "![Syslog Monitor $Tag]($imageUrl)"
+        $image = "<img src=`"$imageUrl`" alt=`"Syslog Monitor $Tag`" width=`"640`">"
         Set-Content -LiteralPath $notes.FullName -Value "$image`n`n$($release.body)" -Encoding utf8
         & gh release edit $Tag --repo $repository --notes-file $notes.FullName
         if ($LASTEXITCODE -ne 0) {
@@ -91,5 +91,33 @@ if (-not ([string]$release.body).Contains($imageUrl)) {
         }
     } finally {
         Remove-Item -LiteralPath $notes.FullName -Force
+    }
+}
+
+# The README gallery lives on a separate branch so the release assets stay limited
+# to the packages and a single preview image. One force-pushed commit keeps it small.
+if ($gallery.Count -gt 0) {
+    if (-not $env:GH_TOKEN) {
+        throw "GH_TOKEN is required to publish the screenshot gallery."
+    }
+    $branchDir = Join-Path ([System.IO.Path]::GetTempPath()) "syslogmonitor-screenshots-$([guid]::NewGuid())"
+    New-Item -ItemType Directory -Path $branchDir | Out-Null
+    try {
+        Copy-Item -LiteralPath $gallery -Destination $branchDir
+        & git -C $branchDir init --quiet --initial-branch screenshots
+        & git -C $branchDir add --all
+        & git -C $branchDir -c user.name="github-actions[bot]" `
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" `
+            commit --quiet -m "chore: screenshots for $Tag"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not commit the screenshot gallery."
+        }
+        $remote = "https://x-access-token:$($env:GH_TOKEN)@github.com/$repository.git"
+        & git -C $branchDir push --quiet --force $remote screenshots
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not push the screenshot gallery."
+        }
+    } finally {
+        Remove-Item -LiteralPath $branchDir -Recurse -Force
     }
 }

@@ -37,6 +37,7 @@ def test_demo_data_is_deterministic_and_realistic(screenshot):
 @pytest.mark.parametrize(("theme", "view"), [
     ("system", "main"), ("light", "main"), ("dark", "main"),
     ("dark", "columns"), ("light", "highlights"), ("light", "settings"), ("dark", "export"),
+    ("dark", "history"), ("light", "analysis"), ("dark", "similar"),
 ])
 def test_render_writes_png_of_requested_size(qapp, screenshot, tmp_path, theme, view, monkeypatch):
     demo_datagrams = screenshot.demo_datagrams
@@ -66,9 +67,9 @@ def test_gallery_cli_renders_all_expected_release_assets(screenshot, tmp_path, m
     assert calls == [
         (output, "system", "main"),
         (gallery / "screenshot-light.png", "light", "main"),
-        (gallery / "screenshot-dark.png", "dark", "main"),
-        (gallery / "screenshot-columns.png", "dark", "columns"),
+        (gallery / "screenshot-history.png", "dark", "history"),
+        (gallery / "screenshot-analysis.png", "light", "analysis"),
+        (gallery / "screenshot-similar.png", "dark", "similar"),
         (gallery / "screenshot-highlights.png", "light", "highlights"),
-        (gallery / "screenshot-settings.png", "light", "settings"),
-        (gallery / "screenshot-export.png", "dark", "export"),
+        (gallery / "screenshot-settings.png", "dark", "settings"),
     ]
