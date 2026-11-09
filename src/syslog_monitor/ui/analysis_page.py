@@ -54,7 +54,7 @@ class AnalysisPage(QWidget):
              tr("Messages that differ only in numbers are counted together; numbers are shown as #.")),
             (tr("Similar texts"), MODE_SIMILAR,
              tr("Messages are counted together when their words match at least the chosen "
-                "similarity; numbers are ignored.")),
+                "similarity.")),
         ):
             self.mode.addItem(label, value)
             self.mode.setItemData(self.mode.count() - 1, tip, Qt.ToolTipRole)

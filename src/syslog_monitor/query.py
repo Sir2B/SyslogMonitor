@@ -7,13 +7,14 @@ whole table. Ordering is always ``(received_at, id)`` so pages are stable.
 from __future__ import annotations
 
 import re
+import sqlite3
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import NamedTuple
 
 from syslog_monitor.analysis import (
-    MODE_EXACT, MODE_SIMILAR, MODES, MIN_SIMILARITY, NUMBER_PLACEHOLDER, FrequencyGroup, FrequencyReport,
-    cluster_similar, group_limit,
+    MODE_EXACT, MODE_NUMBERS, MODE_SIMILAR, MODES, MIN_SIMILARITY, NUMBER_PLACEHOLDER, FrequencyGroup, FrequencyReport,
+    DEFAULT_SIMILARITY, cluster_similar, common_part, group_limit, similar_to,
 )
 from syslog_monitor.events import SeverityClass, SyslogEvent
 from syslog_monitor.matching import (
@@ -66,7 +67,9 @@ class MessageStatistics:
     regex: str
     bucket_ms: int = 3_600_000
     custom_regex: bool = False
-
+    alike: MessageFrequency | None = None  # texts at least ``similarity`` similar, numbers ignored
+    similarity: float = DEFAULT_SIMILARITY
+    common: str = ""  # shared part of the similar texts, gaps shown as "…"
 
 Cursor = tuple[int, int]  # (received_at, id)
 
@@ -509,7 +512,8 @@ class QueryRunner:
             params + [limit]).fetchone()[0]
 
     def message_statistics(self, f: EventFilter, row: EventRow, now_ms: int,
-                           regex: str | None = None) -> MessageStatistics:
+                           regex: str | None = None,
+                           similarity: float = DEFAULT_SIMILARITY) -> MessageStatistics:
         """One snapshot, same sender/app, exact text and a regex family.
 
         Without ``regex`` the family is :func:`message_regex` of the selected message.
@@ -522,6 +526,7 @@ class QueryRunner:
             end = min(f.end_ms, now_ms) if f.end_ms is not None else now_ms
             bounded = f.with_time(f.start_ms, end)
             where, params = build_where(bounded)
+            all_where, all_params = where, list(params)
             where += " AND source_ip = ? AND app_name IS ?"
             params += [row.source_ip, row.app_name]
             first = self._conn.execute(
@@ -562,13 +567,35 @@ class QueryRunner:
                 bucket = min(max(bucket, 0), buckets - 1)
                 exact_series[bucket] += exact_count
                 similar_series[bucket] += count
+            alike: dict[int, int] = {}
+            alike_series = [0] * buckets
+            selected = row.message or ""
+            matches = similar_to(selected, similarity)
+            verdicts: dict[str, bool] = {}
+            interrupts = self._interrupts
+            for template, hour, bucket, count in self._conn.execute(
+                    f"SELECT COALESCE(message, ''), (received_at - ?) / 3600000, (received_at - ?) / ?, "
+                    f"COUNT(*) FROM events WHERE {all_where} AND received_at >= ? GROUP BY 1, 2, 3",
+                    [start, start, bucket_ms, *all_params, start]):
+                if self._interrupts != interrupts:
+                    raise sqlite3.OperationalError("interrupted")
+                verdict = verdicts.get(template)
+                if verdict is None:
+                    verdict = verdicts[template] = matches(template)
+                if verdict:
+                    alike[hour] = alike.get(hour, 0) + count
+                    alike_series[min(max(bucket, 0), buckets - 1)] += count
+            common = common_part(selected, [t for t, ok in verdicts.items() if ok])
             return MessageStatistics(
                 start, end,
                 MessageFrequency(sum(exact.values()), *hourly_statistics(exact, duration),
                                  tuple(exact_series)),
                 MessageFrequency(sum(similar.values()), *hourly_statistics(similar, duration),
                                  tuple(similar_series)),
-                regex, bucket_ms, custom)
+                regex, bucket_ms, custom,
+                MessageFrequency(sum(alike.values()), *hourly_statistics(alike, duration),
+                                 tuple(alike_series)),
+                similarity, common)
         finally:
             self._conn.rollback()
 
@@ -577,17 +604,17 @@ class QueryRunner:
         """How often each message occurred, most frequent first (bounded by :func:`group_limit`).
 
         ``exact`` groups identical texts, ``numbers`` treats texts differing only in numbers as
-        equal and ``similar`` additionally merges number-insensitive patterns whose words are at
-        least ``similarity`` alike.
+        equal and ``similar`` merges exact texts whose words (numbers included) are at least
+        ``similarity`` alike.
         """
         if mode not in MODES:
             raise ValueError(f"Unknown analysis mode: {mode}")
         if not MIN_SIMILARITY <= similarity <= 1:
-            raise ValueError("Similarity must be between 0.5 and 1.")
+            raise ValueError("Similarity must be between 0 and 1.")
         limit = group_limit(mode)
         interrupts = self._interrupts
         where, params = build_where(f)
-        key = "COALESCE(message, '')" if mode == MODE_EXACT else "number_template(message)"
+        key = "number_template(message)" if mode == MODE_NUMBERS else "COALESCE(message, '')"
         self._conn.execute("BEGIN")
         try:
             total = self._conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
@@ -597,7 +624,7 @@ class QueryRunner:
                 f"GROUP BY pattern ORDER BY hits DESC, pattern LIMIT ?", params + [limit + 1]).fetchall()
         finally:
             self._conn.rollback()
-        placeholder = NUMBER_KEY if mode == MODE_EXACT else NUMBER_PLACEHOLDER
+        placeholder = NUMBER_PLACEHOLDER if mode == MODE_NUMBERS else NUMBER_KEY
         groups = tuple(
             FrequencyGroup(pattern.replace(NUMBER_KEY, placeholder), hits, max(variants, 1),
                            first, last, example or "")

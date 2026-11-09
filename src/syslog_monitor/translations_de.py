@@ -6,6 +6,14 @@ GERMAN_TRANSLATIONS = {
     "Count messages with exactly the same text.": "Nachrichten mit exakt gleichem Text zählen.",
     "Count messages matching the regex: only numbers may differ.":
         "Nachrichten zählen, die zur Regex passen: Nur Zahlen dürfen sich unterscheiden.",
+    "Count messages whose words match at least {percent} % of this message.":
+        "Nachrichten zählen, deren Wörter zu mindestens {percent} % mit dieser Nachricht übereinstimmen.",
+    "Similar ({percent} %)": "Ähnlich ({percent} %)",
+    "Similarity": "Ähnlichkeit",
+    "Similar: all senders and applications.": "Ähnlich: alle Absender und Anwendungen.",
+    "Common: {common}": "Gemeinsam: {common}",
+    "Part shared by all similar messages; … marks differing words.":
+        "Teil, den alle ähnlichen Nachrichten gemeinsam haben; … markiert abweichende Wörter.",
     "Regex pattern": "Regex-Muster",
     "Editable Python regex (search; use ^ and $ for whole messages). Press Enter to apply.\n"
     "Automatic pattern: numbers are replaced by {number}; all other characters must match.":
@@ -52,9 +60,9 @@ GERMAN_TRANSLATIONS = {
     "Messages that differ only in numbers are counted together; numbers are shown as #.":
         "Meldungen, die sich nur in Zahlen unterscheiden, werden zusammengezählt; Zahlen werden als # angezeigt.",
     "Similar texts": "Ähnliche Texte",
-    "Messages are counted together when their words match at least the chosen similarity; numbers are ignored.":
+    "Messages are counted together when their words match at least the chosen similarity.":
         "Meldungen werden zusammengezählt, wenn ihre Wörter mindestens zur gewählten Ähnlichkeit "
-        "übereinstimmen; Zahlen werden ignoriert.",
+        "übereinstimmen.",
     "Minimum share of matching words for similar texts": "Mindestanteil übereinstimmender Wörter für ähnliche Texte",
     "Similarity:": "Ähnlichkeit:",
     "Analyze": "Analysieren",

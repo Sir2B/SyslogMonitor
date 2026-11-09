@@ -87,12 +87,12 @@ def test_slow_statistics_do_not_block_details_or_publish_stale_selection(qtbot, 
     started, release = Event(), Event()
     original = QueryRunner.message_statistics
 
-    def delayed(runner, filters, row, now, regex=None):
+    def delayed(runner, filters, row, now, regex=None, *args, **kwargs):
         if row.message == "old selection":
             started.set()
             if not release.wait(5):
                 raise TimeoutError("Test did not release statistics worker")
-        return original(runner, filters, row, now, regex)
+        return original(runner, filters, row, now, regex, *args, **kwargs)
 
     monkeypatch.setattr(QueryRunner, "message_statistics", delayed)
     send(window, "<14>old selection", "<14>new selection")

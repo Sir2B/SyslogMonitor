@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from syslog_monitor import APP_DISPLAY_NAME
+from syslog_monitor.analysis import DEFAULT_SIMILARITY
 from syslog_monitor.config import Settings, save_settings
 from syslog_monitor.events import SEVERITY_CLASS_LABELS, SeverityClass, severity_class
 from syslog_monitor.firewall import FirewallCheck, Level, check_firewalls, current_programs, remedy
@@ -1245,6 +1246,7 @@ class MainWindow(QMainWindow):
         s.setValue("bottom_inspector_splitter", self.splitter.saveState())
         s.setValue("inspector_visible", self.inspector_action.isChecked())
         s.setValue("statistics_mode", self.inspector.mode)
+        s.setValue("statistics_similarity", self.inspector.similarity)
         s.setValue("search_options", json.dumps(asdict(self.search_options.options())))
         s.setValue("rules_splitter", self.rules_splitter.saveState())
         s.setValue("columns", self.table.horizontalHeader().saveState())
@@ -1295,6 +1297,10 @@ class MainWindow(QMainWindow):
                 restore(value)
         self.inspector_action.setChecked(str(s.value("inspector_visible", True)).lower() == "true")
         self.inspector.set_mode(str(s.value("statistics_mode", "exact")))
+        try:
+            self.inspector.set_similarity(float(s.value("statistics_similarity", DEFAULT_SIMILARITY)))
+        except (TypeError, ValueError):
+            pass
         try:
             self.search_options.set_options(MatchOptions(**json.loads(s.value("search_options", "{}"))))
         except (TypeError, ValueError):

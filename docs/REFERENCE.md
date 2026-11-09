@@ -469,10 +469,10 @@ the first and last occurrence and the message text; columns can be sorted.
 |---|---|
 | **Exact text** | Only identical messages. |
 | **Ignore numbers** (default) | Messages that differ only in numbers. Numbers are shown as `#`, using the same number recognition as the selected-message statistics (`-?digits[.digits]`, including digits inside words such as `eth0`). **Variants** shows how many different exact texts a group contains. |
-| **Similar texts** | Number-insensitive patterns whose words and punctuation match at least the chosen **Similarity** (50–100 %, default 80 %), measured as `2 × matching tokens / total tokens`. Patterns are processed from most to least frequent and join the first group whose leading pattern is similar enough, so a chain of small changes cannot merge unrelated messages. The tooltip shows an example and the number of merged patterns. |
+| **Similar texts** | Exact texts whose words and punctuation match at least the chosen **Similarity** (0–100 %, default 80 %), measured as `2 × matching tokens / total tokens`. Numbers are not treated specially; they are compared like words. Texts are processed from most to least frequent and join the first group whose leading text is similar enough, so a chain of small changes cannot merge unrelated messages. The tooltip shows an example and the number of merged texts. |
 
 To stay responsive, the table lists at most the 5,000 most frequent groups;
-similar-text grouping compares the 2,000 most frequent number-insensitive patterns.
+similar-text grouping compares the 2,000 most frequent exact texts.
 The summary line states when a limit applied. Counting runs on a separate background
 connection and is cancelled when options change; worst-case similar-text grouping of
 2,000 completely different patterns took about 4.5 s on a 100,000-message database.
@@ -701,6 +701,14 @@ Each mode button shows its count.
   shown in the panel and can be copied for searching. This is a deterministic heuristic,
   not semantic matching: different error codes or interface numbers can be grouped, and
   changing words, whitespace, capitalization, or the number of fields keeps messages separate.
+- **Similar (80 %):** messages whose words and punctuation (numbers included, compared like
+  words) match at least 80 % of the selected message, using the same measure as **Similar
+  texts** on the Analysis page. For example, `link eth0 up on port 1 speed 1000 full duplex`
+  and `link eth0 down on port 1 speed 1000 full duplex` are counted together. Unlike the other
+  modes, this one counts messages from all senders and applications (filters and time range
+  still apply). The regex field is hidden in this mode; instead a slider at the right
+  of the summary line sets the threshold (0–100 %, remembered). Below it, **Common** shows
+  the part shared by all counted variants (`…` for differing words).
 - **Custom regex:** the regex field is editable. Press Enter to recount the pattern mode
   with your own Python regular expression (search semantics, so use `^`/`$` to match whole
   messages; matching is case-sensitive unless you add `(?i)`). Invalid expressions are

@@ -126,6 +126,34 @@ def test_message_statistics_exact_similar_scope_and_empty_hours(store):
         q.close()
 
 
+def test_message_statistics_similar_texts(store):
+    q = fill(store, [
+        make_event(0, message="link eth0 up on port 1 speed 1000 full duplex"),
+        make_event(1, message="link eth1 up on port 2 speed 100 full duplex"),
+        make_event(2, message="link eth0 down on port 1 speed 1000 full duplex"),
+        make_event(3, message="disk usage 91 percent"),
+        make_event(4, message="link eth0 down on port 1 speed 1000 full duplex", source_ip="192.0.2.9"),
+        make_event(5, message="link eth0 down on port 1 speed 1000 full duplex", app_name="other"),
+    ])
+    try:
+        row = q.fetch_older(EventFilter(), None, 10)[-1]
+        assert row.message.startswith("link eth0 up")
+        stats = q.message_statistics(EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 10),
+                                     row, BASE_MS + 10)
+        assert stats.exact.count == 1 and stats.similar.count == 2
+        # Numbers are compared like words: eth1/2/100 differ too much, "down" alone does not.
+        # Similar texts are counted across all senders and applications.
+        assert stats.alike.count == 4 and sum(stats.alike.series) == 4
+        assert stats.similarity == 0.8
+        assert stats.common == "link eth0 … on port 1 speed 1000 full duplex"
+        strict = q.message_statistics(EventFilter(start_ms=BASE_MS, end_ms=BASE_MS + 10),
+                                      row, BASE_MS + 10, similarity=1.0)
+        assert strict.alike.count == 1
+        assert strict.common == row.message
+    finally:
+        q.close()
+
+
 def test_message_statistics_partial_hours_null_app_and_open_start(store):
     hour = 3_600_000
     q = fill(store, [

@@ -1,9 +1,11 @@
+from dataclasses import replace
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from syslog_monitor.query import MessageFrequency, MessageStatistics
 from syslog_monitor.ui.message_inspector import (
-    MODE_EXACT, MODE_PATTERN, MessageInspector, format_bucket,
+    MODE_EXACT, MODE_PATTERN, MODE_SIMILAR, MessageInspector, format_bucket,
 )
 from conftest import make_event
 
@@ -59,6 +61,27 @@ def test_statistics_mode_switch_graph_and_regex(qtbot):
     assert inspector.graph.bucket_at(inspector.graph.width() - 2) == 2
     assert "2 occurrences" in inspector.graph.bucket_tooltip(2)
     inspector.graph.grab()
+    inspector.mode_buttons[MODE_SIMILAR].click()
+    assert inspector.graph.series == (1, 0, 1)  # no similar series: falls back to exact
+    inspector.show_statistics(replace(_stats(), alike=MessageFrequency(7, 7, 0, (4, 1, 2)),
+                                      similarity=0.8, common="link … on port #"), [])
+    assert inspector.common.isVisible() and inspector.common.text() == "Common: link … on port #"
+    inspector.show_statistics(replace(_stats(), alike=MessageFrequency(7, 7, 0, (4, 1, 2)),
+                                      similarity=0.8, common="link … on port #"), [])
+    assert "Common: link … on port #" in inspector.statistics_text()
+    assert "Similar (80 %) · 7" in inspector.statistics_text()
+    assert "Occurrences: 7" in inspector.summary.text()
+    assert inspector.graph.series == (4, 1, 2)
+    assert inspector.regex_row.isHidden()
+    assert inspector.similarity_slider.isVisible() and inspector.similarity_value.text() == "80 %"
+    changed = []
+    inspector.similarity_changed.connect(changed.append)
+    inspector.similarity_slider.setValue(73)
+    assert inspector.similarity == 0.75 and changed[-1] == 0.75
+    assert inspector.similarity_value.text() == "75 %"
+    inspector.set_mode(MODE_EXACT)
+    assert inspector.similarity_slider.isHidden()
+    assert inspector.common.isHidden()
     inspector.set_mode("bogus")
     assert inspector.mode == MODE_EXACT
 

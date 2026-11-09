@@ -34,6 +34,7 @@ class InspectorController(QObject):
         self.timer.timeout.connect(self._request_statistics)
         statistics_queries.error.connect(self._on_error)
         inspector.regex_changed.connect(self._set_regex)
+        inspector.similarity_changed.connect(self._set_similarity)
         model.modelReset.connect(self.clear)
 
     def shutdown(self) -> None:
@@ -71,6 +72,11 @@ class InspectorController(QObject):
         self.statistics_queries.new_generation()
         self.timer.start(0)
 
+    def _set_similarity(self, _value: float) -> None:
+        if self._selected_row is not None:
+            self.statistics_queries.new_generation()
+            self.timer.start(300)
+
     def _request_statistics(self) -> None:
         row = self._selected_row
         if row is None:
@@ -80,9 +86,10 @@ class InspectorController(QObject):
             return
         filters, now = self._list_filter(), time.time_ns() // 1_000_000
         regex = self._custom_regex[1] if self._custom_regex and self._custom_regex[0] == row.id else None
+        similarity = self.inspector.similarity
 
         def job(runner):
-            return runner.get_event(row.id), runner.message_statistics(filters, row, now, regex)
+            return runner.get_event(row.id), runner.message_statistics(filters, row, now, regex, similarity)
 
         def apply(result):
             if self._selected_row is None or self._selected_row.id != row.id:
@@ -94,6 +101,7 @@ class InspectorController(QObject):
                 return
             lines = [
                 tr("Same sender and application; active filters and time range (including zoom)."),
+                tr("Similar: all senders and applications."),
                 tr("Sender: {sender} · Application: {app}", sender=row.source_ip, app=row.app_name or "–"),
                 f"{format_ts(stats.start_ms)} – {format_ts(stats.end_ms)}",
                 tr("Regex: {regex}", regex=stats.regex),

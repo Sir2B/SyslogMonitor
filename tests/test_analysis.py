@@ -55,7 +55,7 @@ def test_cluster_similar_compares_with_leader_to_avoid_chaining():
 
 def test_cluster_similar_rejects_invalid_thresholds():
     with pytest.raises(ValueError):
-        cluster_similar([], 0.4)
+        cluster_similar([], -0.1)
     with pytest.raises(ValueError):
         cluster_similar([], 1.1)
 
@@ -136,7 +136,8 @@ def test_message_frequencies_exact_numbers_and_similar(store):
         with pytest.raises(ValueError):
             q.message_frequencies(EventFilter(), "bogus")
         with pytest.raises(ValueError):
-            q.message_frequencies(EventFilter(), MODE_SIMILAR, 0.2)
+            q.message_frequencies(EventFilter(), MODE_SIMILAR, -0.2)
+        assert len(q.message_frequencies(EventFilter(), MODE_SIMILAR, 0.0).groups) <= 1
     finally:
         q.close()
 

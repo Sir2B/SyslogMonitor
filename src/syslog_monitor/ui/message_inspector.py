@@ -8,10 +8,11 @@ from html import escape
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QMouseEvent, QPainter, QPaintEvent, QPalette, QPen
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QSizePolicy,
+    QApplication, QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QSizePolicy, QSlider,
     QTextBrowser, QToolButton, QToolTip, QVBoxLayout, QWidget,
 )
 
+from syslog_monitor.analysis import DEFAULT_SIMILARITY, MIN_SIMILARITY
 from syslog_monitor.events import SyslogEvent, facility_name, severity_name
 from syslog_monitor.i18n import tr
 from syslog_monitor.query import MessageFrequency, MessageStatistics
@@ -20,7 +21,8 @@ from syslog_monitor.ui.palette import is_dark
 
 MODE_EXACT = "exact"
 MODE_PATTERN = "pattern"
-STATISTICS_MODES = (MODE_EXACT, MODE_PATTERN)
+MODE_SIMILAR = "similar"
+STATISTICS_MODES = (MODE_EXACT, MODE_PATTERN, MODE_SIMILAR)
 
 
 def regex_error(pattern: str) -> str | None:
@@ -119,6 +121,7 @@ class FrequencyGraph(QWidget):
 class MessageInspector(QWidget):
     mode_changed = Signal(str)
     regex_changed = Signal(object)  # str, or None for the automatic pattern
+    similarity_changed = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -155,7 +158,10 @@ class MessageInspector(QWidget):
         self.mode_group = QButtonGroup(self)
         self.mode_buttons: dict[str, QToolButton] = {}
         for mode, tip in ((MODE_EXACT, tr("Count messages with exactly the same text.")),
-                          (MODE_PATTERN, tr("Count messages matching the regex: only numbers may differ."))):
+                          (MODE_PATTERN, tr("Count messages matching the regex: only numbers may differ.")),
+                          (MODE_SIMILAR, tr("Count messages whose words match at least {percent} % of this "
+                                            "message.",
+                                            percent=round(DEFAULT_SIMILARITY * 100)))):
             button = QToolButton(checkable=True)
             button.setToolTip(tip)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -175,7 +181,31 @@ class MessageInspector(QWidget):
         self.summary.setFont(bold)
         self.summary.setWordWrap(True)
         self.summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        column.addWidget(self.summary)
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 0, 0, 0)
+        summary_row.addWidget(self.summary, 1)
+        self.similarity_slider = QSlider(Qt.Horizontal)
+        self.similarity_slider.setRange(round(MIN_SIMILARITY * 100), 100)
+        self.similarity_slider.setSingleStep(5)
+        self.similarity_slider.setPageStep(10)
+        self.similarity_slider.setValue(round(DEFAULT_SIMILARITY * 100))
+        self.similarity_slider.setFixedWidth(110)
+        self.similarity_slider.setAccessibleName(tr("Similarity"))
+        self.similarity_slider.setToolTip(tr("Minimum share of matching words for similar texts"))
+        self.similarity_value = QLabel()
+        self.similarity_value.setMinimumWidth(self.similarity_value.fontMetrics().horizontalAdvance("100 %"))
+        self.similarity_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.similarity_slider.valueChanged.connect(self._on_similarity_moved)
+        summary_row.addWidget(self.similarity_slider)
+        summary_row.addWidget(self.similarity_value)
+        column.addLayout(summary_row)
+        self.common = QLabel()
+        self.common.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        self.common.setWordWrap(True)
+        self.common.setTextFormat(Qt.PlainText)
+        self.common.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.common.setToolTip(tr("Part shared by all similar messages; … marks differing words."))
+        column.addWidget(self.common)
         regex_row = QHBoxLayout()
         self.regex = QLineEdit()
         self.regex.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
@@ -213,6 +243,8 @@ class MessageInspector(QWidget):
         self._marker_ms: int | None = None
         self._regex_dirty = False
         self._update_mode_labels()
+        self.similarity_value.setText(f"{self.similarity_slider.value()} %")
+        self._update_similarity_visibility()
         self.clear_statistics()
         return self.statistics
 
@@ -238,26 +270,54 @@ class MessageInspector(QWidget):
         self.regex_changed.emit(None)
 
     @property
+    def similarity(self) -> float:
+        return self.similarity_slider.value() / 100
+
+    def set_similarity(self, value: float) -> None:
+        self.similarity_slider.setValue(round(min(max(value, MIN_SIMILARITY), 1) * 100))
+
+    def _on_similarity_moved(self, value: int) -> None:
+        stepped = round(value / 5) * 5
+        if stepped != value:
+            self.similarity_slider.setValue(stepped)
+            return
+        self.similarity_value.setText(f"{value} %")
+        self.similarity_changed.emit(value / 100)
+
+    def _update_similarity_visibility(self) -> None:
+        visible = self.mode == MODE_SIMILAR
+        self.similarity_slider.setVisible(visible)
+        self.similarity_value.setVisible(visible)
+
+    @property
     def mode(self) -> str:
-        return MODE_PATTERN if self.mode_buttons[MODE_PATTERN].isChecked() else MODE_EXACT
+        return next((mode for mode, button in self.mode_buttons.items() if button.isChecked()), MODE_EXACT)
 
     def set_mode(self, mode: str) -> None:
         self.mode_buttons[mode if mode in STATISTICS_MODES else MODE_EXACT].setChecked(True)
 
     def _on_mode_toggled(self, _button, checked: bool) -> None:
         if checked:
+            self._update_similarity_visibility()
             self._render_statistics()
             self.mode_changed.emit(self.mode)
 
     def _update_mode_labels(self) -> None:
         stats = self._stats
-        for mode, title in ((MODE_EXACT, tr("Identical text")), (MODE_PATTERN, tr("Pattern (regex)"))):
+        for mode, title in ((MODE_EXACT, tr("Identical text")), (MODE_PATTERN, tr("Pattern (regex)")),
+                            (MODE_SIMILAR, tr("Similar ({percent} %)", percent=round(
+                                (stats.similarity if stats is not None else DEFAULT_SIMILARITY) * 100)))):
             if mode == MODE_PATTERN and stats is not None and stats.custom_regex:
                 title = tr("Custom regex")
             if stats is not None:
-                count = (stats.exact if mode == MODE_EXACT else stats.similar).count
-                title = f"{title} · {format_count(count)}"
+                frequency = self._frequency(stats, mode)
+                if frequency is not None:
+                    title = f"{title} · {format_count(frequency.count)}"
             self.mode_buttons[mode].setText(title)
+
+    @staticmethod
+    def _frequency(stats: MessageStatistics, mode: str) -> MessageFrequency | None:
+        return {MODE_EXACT: stats.exact, MODE_PATTERN: stats.similar, MODE_SIMILAR: stats.alike}[mode]
 
     def clear_statistics(self, message: str = "") -> None:
         self._stats = None
@@ -268,6 +328,8 @@ class MessageInspector(QWidget):
         self.regex.setToolTip(self._regex_tooltip)
         self._regex_dirty = False
         self.regex_row.hide()
+        self.common.clear()
+        self.common.hide()
         self.graph.clear()
         self.footer.clear()
         self.statistics.setToolTip("")
@@ -281,6 +343,8 @@ class MessageInspector(QWidget):
             parts.insert(0, " | ".join(button.text() for button in self.mode_buttons.values()))
         if not self.regex_row.isHidden():
             parts.append(self.regex.text())
+        if not self.common.isHidden():
+            parts.append(self.common.text())
         parts.append(self.footer.text())
         return "\n".join(part for part in parts if part)
 
@@ -296,7 +360,7 @@ class MessageInspector(QWidget):
         if stats is None:
             return
         pattern = self.mode == MODE_PATTERN
-        frequency: MessageFrequency = stats.similar if pattern else stats.exact
+        frequency = self._frequency(stats, self.mode) or stats.exact
         self.summary.setText(" · ".join((
             tr("Occurrences: {count}", count=format_count(frequency.count)),
             f"{frequency.per_hour:.2f}/h",
@@ -307,6 +371,9 @@ class MessageInspector(QWidget):
             self.regex.setCursorPosition(0)
             self.reset_regex.setEnabled(stats.custom_regex)
         self.regex_row.setVisible(pattern)
+        common = stats.common if self.mode == MODE_SIMILAR and stats.alike is not None else ""
+        self.common.setText(tr("Common: {common}", common=common) if common else "")
+        self.common.setVisible(bool(common))
         self.graph.set_series(stats.start_ms, stats.bucket_ms, frequency.series, self._marker_ms)
         self.footer.setText(tr("{start} – {end} · per {bucket}", start=format_ts(stats.start_ms),
                                end=format_ts(stats.end_ms), bucket=format_bucket(stats.bucket_ms)))

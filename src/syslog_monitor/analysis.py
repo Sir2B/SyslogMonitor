@@ -13,7 +13,7 @@ MODE_NUMBERS = "numbers"
 MODE_SIMILAR = "similar"
 MODES = (MODE_EXACT, MODE_NUMBERS, MODE_SIMILAR)
 DEFAULT_SIMILARITY = 0.8
-MIN_SIMILARITY = 0.5
+MIN_SIMILARITY = 0.0
 MAX_GROUPS = 5000
 # Similarity grouping compares patterns pairwise, so its input is smaller.
 MAX_SIMILAR_INPUT = 2000
@@ -29,7 +29,7 @@ class FrequencyGroup:
     first_ms: int
     last_ms: int
     example: str
-    patterns: int = 1  # number-insensitive patterns merged into a similar-text group
+    patterns: int = 1  # texts merged into a similar-text group
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +59,65 @@ def similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, a, b, autojunk=False).ratio()
 
 
+def similar_to(pattern: str, threshold: float = DEFAULT_SIMILARITY) -> Callable[[str], bool]:
+    """Predicate: is a pattern at least ``threshold`` similar to ``pattern`` (same measure as clustering)?"""
+    if not MIN_SIMILARITY <= threshold <= 1:
+        raise ValueError("Similarity must be between 0 and 1.")
+    words = tokens(pattern)
+    matcher = SequenceMatcher(None, autojunk=False)
+    matcher.set_seq2(words)
+    size = len(words)
+    low = size * threshold / (2 - threshold)
+    high = size * (2 - threshold) / threshold if threshold else float("inf")
+
+    def check(other_pattern: str) -> bool:
+        other = tokens(other_pattern)
+        if not other and not words:
+            return True
+        if not low - 1e-9 <= len(other) <= high + 1e-9:
+            return False
+        matcher.set_seq1(other)
+        return (matcher.real_quick_ratio() >= threshold and matcher.quick_ratio() >= threshold
+                and matcher.ratio() >= threshold)
+
+    return check
+
+
+def common_part(pattern: str, others, placeholder: str = "…") -> str:
+    """Tokens of ``pattern`` that occur, in order, in every one of ``others``; gaps become ``placeholder``."""
+    spans = [match.span() for match in _TOKEN_RE.finditer(pattern)]
+    words = [pattern[start:end] for start, end in spans]
+    keep = [True] * len(words)
+    matcher = SequenceMatcher(None, autojunk=False)
+    matcher.set_seq2(words)
+    for other in others:
+        matcher.set_seq1(tokens(other))
+        matched = [False] * len(words)
+        for _a, b, size in matcher.get_matching_blocks():
+            for index in range(b, b + size):
+                matched[index] = True
+        keep = [k and m for k, m in zip(keep, matched)]
+    parts: list[str] = []
+    previous = None
+    for index, (start, end) in enumerate(spans):
+        if not keep[index]:
+            continue
+        if previous is None:
+            if index > 0:
+                parts.append(placeholder + " ")
+        elif previous == index - 1:
+            parts.append(pattern[spans[previous][1]:start])
+        else:
+            parts.append(f" {placeholder} ")
+        parts.append(pattern[start:end])
+        previous = index
+    if previous is None:
+        return placeholder if words else ""
+    if previous < len(words) - 1:
+        parts.append(" " + placeholder)
+    return "".join(parts)
+
+
 def cluster_similar(groups: list[FrequencyGroup] | tuple[FrequencyGroup, ...],
                     threshold: float = DEFAULT_SIMILARITY,
                     should_stop: Callable[[], bool] = lambda: False) -> tuple[FrequencyGroup, ...]:
@@ -71,7 +130,7 @@ def cluster_similar(groups: list[FrequencyGroup] | tuple[FrequencyGroup, ...],
     like an interrupted database query.
     """
     if not MIN_SIMILARITY <= threshold <= 1:
-        raise ValueError("Similarity must be between 0.5 and 1.")
+        raise ValueError("Similarity must be between 0 and 1.")
     ordered = sorted(groups, key=lambda g: (-g.count, g.pattern))
     leaders: list[tuple[tuple[str, ...], int]] = []  # (tokens, index into merged)
     by_length: dict[int, list[int]] = {}
