@@ -66,7 +66,9 @@ button beside Search hides or shows the panel; drag its divider to adjust the he
 
 ## Everyday controls
 
-Use the left sidebar to switch between **Logs**, **Export**, and **Client validation**.
+Use the left sidebar to switch between **Logs**, **Analysis**, **Export**, and **Client validation**.
+**Analysis** lists how often each message occurred within the current filters and time
+range: as exact text, with numbers ignored, or grouped by similar text (80 % by default).
 Updates are checked once at startup in the background. A newer stable version is
 shown as a small status-bar link, without popups or automatic downloads. The link
 opens the official GitHub release page. Disable this in **Settings** if desired.

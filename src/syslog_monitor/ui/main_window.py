@@ -33,6 +33,7 @@ from syslog_monitor.ui import status_text
 from syslog_monitor.ui.event_model import EventTableModel
 from syslog_monitor.ui.event_table import EventTable
 from syslog_monitor.ui.about_dialog import AboutDialog
+from syslog_monitor.ui.analysis_page import AnalysisPage
 from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
 from syslog_monitor.ui.filter_bar import ALL_SEVERITIES, FilterBar
@@ -66,6 +67,7 @@ RANGE_PRESETS: tuple[tuple[str, int | None], ...] = (
 DEFAULT_RANGE_INDEX = 3
 CUSTOM_RANGE_INDEX = len(RANGE_PRESETS)  # extra combo entry "From / To"
 DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
+PAGES = ("logs", "analysis", "export", "validation", "settings", "about", "quit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,7 @@ class MainWindow(QMainWindow):
         self._rate_tracker = RateTracker()
         self._export_dialog: ExportDialog | None = None
         self._diagnostics_dialog: DiagnosticsDialog | None = None
+        self._analysis_page: AnalysisPage | None = None
         self._settings_page: SettingsDialog | None = None
         self._pages: dict[str, QWidget] = {}
         self.current_page = "logs"
@@ -202,6 +205,9 @@ class MainWindow(QMainWindow):
         self.diagnostics_action.triggered.connect(self.open_diagnostics)
         self.export_action = QAction(tr("Export"), self)
         self.export_action.triggered.connect(self.open_export)
+        self.analysis_action = QAction(tr("Analysis"), self)
+        self.analysis_action.setToolTip(tr("How often each message occurred"))
+        self.analysis_action.triggered.connect(lambda: self.show_page("analysis"))
         quit_action = QAction(tr("Quit"), self, shortcut=QKeySequence.Quit)
         quit_action.setToolTip(tr("Choose minimize or quit (Ctrl+Q)"))
         quit_action.triggered.connect(lambda: self.show_page("quit"))
@@ -396,6 +402,7 @@ class MainWindow(QMainWindow):
         self.logs_action.triggered.connect(lambda: self.show_page("logs"))
         for name, action in (
             ("logs", self.logs_action),
+            ("analysis", self.analysis_action),
             ("export", self.export_action),
             ("validation", self.diagnostics_action),
         ):
@@ -1030,10 +1037,13 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- settings
     def show_page(self, name: str) -> None:
-        if name not in ("logs", "export", "validation", "settings", "about", "quit"):
+        if name not in PAGES:
             raise ValueError(f"Unknown page: {name}")
         if name not in self._pages:
-            if name == "export":
+            if name == "analysis":
+                dialog = AnalysisPage(self.service.db_path, self.list_filter, self)
+                self._analysis_page = dialog
+            elif name == "export":
                 dialog = ExportDialog(self.service.db_path, self.service.settings.boot_marker,
                                       self.filter_bar.current_filter(), self, embedded=True)
                 self._export_dialog = dialog
@@ -1117,8 +1127,10 @@ class MainWindow(QMainWindow):
             self._export_dialog._boot_marker = self.service.settings.boot_marker
         self.current_page = name
         self.pages.setCurrentWidget(self._pages[name])
-        for key in ("logs", "export", "validation", "settings", "about", "quit"):
+        for key in PAGES:
             self.sidebar.buttons[key].defaultAction().setChecked(key == name)
+        if name == "analysis":
+            self._analysis_page.analyze()
 
     @Slot()
     def go_to_latest(self) -> None:
@@ -1211,6 +1223,8 @@ class MainWindow(QMainWindow):
     def shutdown(self) -> None:
         """Stop timers and the query thread; the capture service is closed by the caller."""
         self.update_checker.shutdown()
+        if self._analysis_page is not None:
+            self._analysis_page.shutdown()
         if self._export_dialog is not None:
             self._export_dialog.shutdown()
         if self._diagnostics_dialog is not None:

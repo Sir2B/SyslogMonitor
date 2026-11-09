@@ -11,10 +11,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import NamedTuple
 
+from syslog_monitor.analysis import (
+    MODE_EXACT, MODE_SIMILAR, MODES, MIN_SIMILARITY, NUMBER_PLACEHOLDER, FrequencyGroup, FrequencyReport,
+    cluster_similar, group_limit,
+)
 from syslog_monitor.events import SeverityClass, SyslogEvent
 from syslog_monitor.matching import (
-    _ASCII_LOWER, PLAIN_MATCH, MatchOptions, like_pattern, match_error, match_sql, message_regex,
-    number_split, register_functions, text_matches,
+    _ASCII_LOWER, NUMBER_KEY, PLAIN_MATCH, MatchOptions, like_pattern, match_error, match_sql,
+    message_regex, number_split, register_functions, text_matches,
 )
 from syslog_monitor.storage import EVENT_COLUMNS, connect
 
@@ -357,8 +361,10 @@ class QueryRunner:
     def __init__(self, db_file: Path) -> None:
         self._conn = connect(db_file, readonly=True)
         register_functions(self._conn)
+        self._interrupts = 0  # lets Python-side work (similar-text grouping) stop as well
 
     def interrupt(self) -> None:
+        self._interrupts += 1
         self._conn.interrupt()
 
     def close(self) -> None:
@@ -565,6 +571,40 @@ class QueryRunner:
                 regex, bucket_ms, custom)
         finally:
             self._conn.rollback()
+
+    def message_frequencies(self, f: EventFilter, mode: str = MODE_EXACT,
+                            similarity: float = 0.8) -> FrequencyReport:
+        """How often each message occurred, most frequent first (bounded by :func:`group_limit`).
+
+        ``exact`` groups identical texts, ``numbers`` treats texts differing only in numbers as
+        equal and ``similar`` additionally merges number-insensitive patterns whose words are at
+        least ``similarity`` alike.
+        """
+        if mode not in MODES:
+            raise ValueError(f"Unknown analysis mode: {mode}")
+        if not MIN_SIMILARITY <= similarity <= 1:
+            raise ValueError("Similarity must be between 0.5 and 1.")
+        limit = group_limit(mode)
+        interrupts = self._interrupts
+        where, params = build_where(f)
+        key = "COALESCE(message, '')" if mode == MODE_EXACT else "number_template(message)"
+        self._conn.execute("BEGIN")
+        try:
+            total = self._conn.execute(f"SELECT COUNT(*) FROM events WHERE {where}", params).fetchone()[0]
+            rows = self._conn.execute(
+                f"SELECT {key} AS pattern, COUNT(*) AS hits, COUNT(DISTINCT message), "
+                f"MIN(received_at), MAX(received_at), MIN(message) FROM events WHERE {where} "
+                f"GROUP BY pattern ORDER BY hits DESC, pattern LIMIT ?", params + [limit + 1]).fetchall()
+        finally:
+            self._conn.rollback()
+        placeholder = NUMBER_KEY if mode == MODE_EXACT else NUMBER_PLACEHOLDER
+        groups = tuple(
+            FrequencyGroup(pattern.replace(NUMBER_KEY, placeholder), hits, max(variants, 1),
+                           first, last, example or "")
+            for pattern, hits, variants, first, last, example in rows[:limit])
+        if mode == MODE_SIMILAR:
+            groups = cluster_similar(groups, similarity, lambda: self._interrupts != interrupts)
+        return FrequencyReport(mode, total, groups, len(rows) > limit, limit, similarity)
 
     def senders(self, since_ms: int, limit: int) -> list[SenderSummary]:
         """Sending devices since ``since_ms``, most recently active first."""

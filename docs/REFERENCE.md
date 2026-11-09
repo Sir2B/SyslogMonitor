@@ -457,6 +457,26 @@ preserves tabs and line breaks for spreadsheet applications. Selection applies t
 loaded table window (up to 5,000 rows), not the entire database; changing filters or
 refreshing clears the selection.
 
+### Message analysis
+
+**Analysis** in the sidebar counts how often each message occurred. It uses the filters,
+rules and time range (including a zoomed range) currently active in **Logs** and is
+recalculated each time the page is opened or a grouping option changes. **Analyze**
+recalculates manually. Each row shows the count, its share of all matching messages,
+the first and last occurrence and the message text; columns can be sorted.
+
+| Grouping | Counted together |
+|---|---|
+| **Exact text** | Only identical messages. |
+| **Ignore numbers** (default) | Messages that differ only in numbers. Numbers are shown as `#`, using the same number recognition as the selected-message statistics (`-?digits[.digits]`, including digits inside words such as `eth0`). **Variants** shows how many different exact texts a group contains. |
+| **Similar texts** | Number-insensitive patterns whose words and punctuation match at least the chosen **Similarity** (50–100 %, default 80 %), measured as `2 × matching tokens / total tokens`. Patterns are processed from most to least frequent and join the first group whose leading pattern is similar enough, so a chain of small changes cannot merge unrelated messages. The tooltip shows an example and the number of merged patterns. |
+
+To stay responsive, the table lists at most the 5,000 most frequent groups;
+similar-text grouping compares the 2,000 most frequent number-insensitive patterns.
+The summary line states when a limit applied. Counting runs on a separate background
+connection and is cancelled when options change; worst-case similar-text grouping of
+2,000 completely different patterns took about 4.5 s on a 100,000-message database.
+
 ### Export
 
 Open **Export** in the sidebar to save **CSV** or **JSONL**. The period dropdown offers:

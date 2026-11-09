@@ -9,6 +9,8 @@ from functools import lru_cache
 # A minus sign only belongs to the number if it does not join two values ("1-5").
 _NUMBER_RE = re.compile(r"(?:(?<![0-9A-Za-z])-)?[0-9]+(?:\.[0-9]+)?")
 NUMBER_REGEX = r"-?\d+(?:\.\d+)?"
+# Grouping key for numbers in SQL; a private-use character cannot collide with a literal "#".
+NUMBER_KEY = "\ue000"
 _REGEX_SPECIAL = set("\\.^$*+?{}[]|()")
 _REGEX_CONTROL = {"\n": r"\n", "\r": r"\r", "\t": r"\t"}
 
@@ -31,6 +33,11 @@ def number_split(message: str) -> list[str]:
     return _NUMBER_RE.split(message)
 
 
+def number_template(message: str | None, placeholder: str = "#") -> str:
+    """``message`` with every number (as :func:`message_regex` sees it) replaced by ``placeholder``."""
+    return placeholder.join(number_split(message or ""))
+
+
 @lru_cache(maxsize=32)
 def _compiled_regex(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
@@ -44,6 +51,8 @@ def regex_matches(pattern: str, message: str | None) -> bool:
 def register_functions(conn) -> None:
     """SQL functions required by :func:`match_sql` and the query layer."""
     conn.create_function("regex_matches", 2, regex_matches, deterministic=True)
+    conn.create_function("number_template", 1, lambda message: number_template(message, NUMBER_KEY),
+                         deterministic=True)
 
 
 @dataclass(frozen=True, slots=True)

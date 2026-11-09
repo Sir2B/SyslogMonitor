@@ -43,6 +43,39 @@ GERMAN_TRANSLATIONS = {
     "Receiving, storage and running jobs continue.": "Empfang, Speicherung und laufende Aufgaben laufen weiter.",
     "Stops receiving and running jobs, then closes the application.":
         "Stoppt den Empfang und laufende Aufgaben und schließt anschließend die Anwendung.",
+    "Analysis": "Analyse",
+    "How often each message occurred": "Wie oft welche Meldung vorkam",
+    "Message analysis": "Meldungsanalyse",
+    "Exact text": "Exakter Text",
+    "Only identical messages are counted together.": "Nur identische Meldungen werden zusammengezählt.",
+    "Ignore numbers": "Zahlen ignorieren",
+    "Messages that differ only in numbers are counted together; numbers are shown as #.":
+        "Meldungen, die sich nur in Zahlen unterscheiden, werden zusammengezählt; Zahlen werden als # angezeigt.",
+    "Similar texts": "Ähnliche Texte",
+    "Messages are counted together when their words match at least the chosen similarity; numbers are ignored.":
+        "Meldungen werden zusammengezählt, wenn ihre Wörter mindestens zur gewählten Ähnlichkeit "
+        "übereinstimmen; Zahlen werden ignoriert.",
+    "Minimum share of matching words for similar texts": "Mindestanteil übereinstimmender Wörter für ähnliche Texte",
+    "Similarity:": "Ähnlichkeit:",
+    "Analyze": "Analysieren",
+    "Count the messages again": "Meldungen erneut zählen",
+    "Grouping:": "Gruppierung:",
+    "Uses the current filters and time range of the log view.":
+        "Verwendet die aktuellen Filter und den Zeitraum der Log-Ansicht.",
+    "Count": "Anzahl",
+    "Share": "Anteil",
+    "Variants": "Varianten",
+    "First": "Erste",
+    "Last": "Letzte",
+    "Number of different exact messages in this group": "Anzahl unterschiedlicher exakter Meldungen in dieser Gruppe",
+    "Analyzing…": "Analysiere…",
+    "{pattern}\n\nExample: {example}": "{pattern}\n\nBeispiel: {example}",
+    "{count} similar patterns": "{count} ähnliche Muster",
+    "{groups} groups from {total} messages": "{groups} Gruppen aus {total} Meldungen",
+    "Similar texts were grouped from the {limit} most frequent patterns.":
+        "Ähnliche Texte wurden aus den {limit} häufigsten Mustern gruppiert.",
+    "Only the {limit} most frequent groups are shown.": "Nur die {limit} häufigsten Gruppen werden angezeigt.",
+    "Analysis failed: {error}": "Analyse fehlgeschlagen: {error}",
     "Check for updates automatically": "Automatisch nach Updates suchen",
     "Checks GitHub once at startup. No popups or automatic downloads.":
         "Prüft GitHub einmal beim Start. Keine Popups oder automatischen Downloads.",

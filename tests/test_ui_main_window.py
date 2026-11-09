@@ -24,7 +24,7 @@ def test_client_checks_dialog_keeps_normal_receiver_unchanged(qtbot, window):
 def test_sidebar_navigation_is_compact_expandable_and_stateful(qtbot, window):
     assert window.current_page == "logs"
     assert list(window.sidebar.buttons) == [
-        "logs", "export", "validation", "receive", "settings", "about", "quit"]
+        "logs", "analysis", "export", "validation", "receive", "settings", "about", "quit"]
     collapsed_width = window.sidebar.width()
     compact_icon = window.sidebar.buttons["logs"].iconSize()
     assert all(not button.icon().isNull() for button in window.sidebar.buttons.values())
@@ -41,13 +41,13 @@ def test_sidebar_navigation_is_compact_expandable_and_stateful(qtbot, window):
     window._ui_state.setValue("sidebar_expanded", True)
     window._restore_ui_state()
     assert window.sidebar.expanded
-    for name in ("export", "settings", "about", "validation", "quit", "logs"):
+    for name in ("analysis", "export", "settings", "about", "validation", "quit", "logs"):
         qtbot.mouseClick(window.sidebar.buttons[name], Qt.LeftButton)
         assert window.current_page == name
         assert window.pages.currentWidget() is window._pages[name]
         assert window.sidebar.buttons[name].isChecked()
         assert sum(window.sidebar.buttons[key].isChecked()
-                   for key in ("logs", "export", "settings", "about", "validation", "quit")) == 1
+                   for key in ("logs", "analysis", "export", "settings", "about", "validation", "quit")) == 1
     assert QApplication.activeModalWidget() is None
 
 

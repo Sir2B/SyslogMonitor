@@ -83,7 +83,7 @@ def test_navigation_icons_use_theme_and_selected_foreground(qapp, color):
     palette = QPalette()
     palette.setColor(QPalette.WindowText, QColor(color))
     palette.setColor(QPalette.HighlightedText, QColor("#00aaff"))
-    for name in ("logs", "export", "validation", "settings", "about", "quit",
+    for name in ("logs", "analysis", "export", "validation", "settings", "about", "quit",
                  "start", "stop", "expand", "collapse"):
         icon = navigation_icon(name, palette)
         for state, expected in ((QIcon.Off, color), (QIcon.On, "#00aaff")):
