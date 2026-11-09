@@ -13,11 +13,17 @@ class NavigationButton(QToolButton):
         super().__init__()
         self.expanded = False
         self._base_height = self.fontMetrics().height()
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def sizeHint(self) -> QSize:
         scale = self.fontMetrics().height() / self._base_height
-        return QSize(self.fontMetrics().horizontalAdvance("M") * 23 if self.expanded
-                     else round(44 * scale), round(44 * scale))
+        height = round(44 * scale)
+        if not self.expanded:
+            return QSize(height, height)
+        # Icon, gap and text fit exactly; the rail aligns all buttons to the widest one.
+        text = self.text() or (self.defaultAction().text() if self.defaultAction() else "")
+        width = self.iconSize().width() + self.fontMetrics().horizontalAdvance(text) + round(30 * scale)
+        return QSize(width, height)
 
     def minimumSizeHint(self) -> QSize:
         return self.sizeHint()
@@ -92,7 +98,15 @@ class NavigationRail(QScrollArea):
 
     def sizeHint(self) -> QSize:
         size = self.widget().sizeHint()
-        return QSize(size.width() + self.style().pixelMetric(QStyle.PM_ScrollBarExtent), size.height())
+        width = size.width()
+        if size.height() > self.viewport().height() > 0:
+            width += self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        return QSize(width, size.height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if event.oldSize().height() != event.size().height():
+            self.updateGeometry()  # the scrollbar may have appeared or disappeared
 
     def minimumSizeHint(self) -> QSize:
         return QSize(self.sizeHint().width(), 0)
