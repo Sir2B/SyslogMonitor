@@ -8,8 +8,8 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, QUrl, Slot
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
     QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
@@ -51,6 +51,7 @@ from syslog_monitor.ui.palette import apply_theme, is_dark
 from syslog_monitor.ui.query_worker import QueryClient
 from syslog_monitor.ui.settings_dialog import SettingsDialog
 from syslog_monitor.ui.tray import TrayController
+from syslog_monitor.ui.update_check import DOWNLOAD_URL, UpdateChecker
 from syslog_monitor.ui.zoom import MAX_ZOOM, MIN_ZOOM, ZoomController
 
 log = logging.getLogger(__name__)
@@ -128,6 +129,9 @@ class MainWindow(QMainWindow):
         self.statistics_queries = QueryClient(service.db_path, self)
 
         self._build_ui()
+        self.update_checker = UpdateChecker(self)
+        self.update_checker.available.connect(self._show_update)
+        self.update_checker.set_enabled(service.settings.update_check_enabled)
         self._install_zoom_shortcuts()
         self.tray = TrayController(self) if tray_enabled else None
         if self.tray:
@@ -421,13 +425,29 @@ class MainWindow(QMainWindow):
         self.mcp_label = QLabel()
         self.mcp_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
         self.mcp_label.linkActivated.connect(self.show_mcp_details)
+        self.update_label = QLabel()
+        self.update_label.hide()
+        self.update_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
+        self.update_label.linkActivated.connect(self._open_update)
         self.statusBar().addWidget(self.mode_label)
-        for widget in (self.listener_label, self.firewall_label, self.mcp_label, self.counter_label,
+        for widget in (self.update_label, self.listener_label, self.firewall_label, self.mcp_label, self.counter_label,
                        self.storage_label):
             widget.setTextFormat(Qt.RichText)
             self.statusBar().addPermanentWidget(widget)
         self._show_mcp_state()
         self._update_mode_label()
+
+    def _show_update(self, tag: str) -> None:
+        if not self.service.settings.update_check_enabled:
+            return
+        self.update_label.setText(f"<a href='update'>{tr('Update available: {version}', version=tag)}</a>")
+        self.update_label.setToolTip(tr("Open the latest release on GitHub. No automatic installation."))
+        self.update_label.show()
+
+    def _open_update(self, _link: str) -> None:
+        if not QDesktopServices.openUrl(QUrl(DOWNLOAD_URL)):
+            log.warning("Could not open the update release page")
+            self.statusBar().showMessage(tr("Could not open the update release page."), 5000)
 
     def _install_zoom_shortcuts(self) -> None:
         self.zoom_in_action = QAction(tr("Zoom in"), self, shortcut=QKeySequence.ZoomIn)
@@ -1125,6 +1145,9 @@ class MainWindow(QMainWindow):
             return
         if not self.service.apply_settings(new):
             QMessageBox.warning(self, tr("Receiving"), self.service.snapshot().listener_error)
+        self.update_checker.set_enabled(new.update_check_enabled)
+        if not new.update_check_enabled:
+            self.update_label.hide()
         apply_theme(new.theme)
         if self.model.rowCount():
             self.model.dataChanged.emit(
@@ -1187,6 +1210,7 @@ class MainWindow(QMainWindow):
 
     def shutdown(self) -> None:
         """Stop timers and the query thread; the capture service is closed by the caller."""
+        self.update_checker.shutdown()
         if self._export_dialog is not None:
             self._export_dialog.shutdown()
         if self._diagnostics_dialog is not None:

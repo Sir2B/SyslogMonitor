@@ -587,6 +587,20 @@ baselines are captured before changing zoom.
 
 ## Limitations
 
+### Update check
+
+**Settings > Check for updates automatically** is enabled by default. After startup,
+the application makes one background HTTPS request to the official repository's
+GitHub latest-release API. It sends no stored messages, settings, or machine identifier.
+GitHub receives the connection's IP address and application version in the User-Agent.
+Only published stable `vMAJOR.MINOR.PATCH` releases newer than the running version
+produce a small status-bar link. Clicking it opens the official latest-release page
+in the browser; nothing is downloaded or installed automatically, and no popup appears.
+Network failures, rate limits and invalid responses are logged, without interrupting
+reception or showing a notification. Requests have a 10-second timeout and a bounded
+response size. Disabling the setting cancels a pending check and hides the notice.
+There are no periodic checks or retries during the session.
+
 - Under network load or when the socket buffer is full, UDP can lose packets without the
   receiver detecting it.
 - UDP and TCP syslog are neither encrypted nor authenticated; messages and sender

@@ -17,6 +17,19 @@ from syslog_monitor.storage import EventStore  # noqa: E402
 BASE_MS = 1_760_000_000_000  # fixed reference time for deterministic tests
 
 
+@pytest.fixture(autouse=True)
+def isolate_gui_update_checks(monkeypatch):
+    from syslog_monitor.ui import main_window
+    from syslog_monitor.ui.update_check import UpdateChecker
+
+    def checker(parent):
+        instance = UpdateChecker(parent)
+        instance._checked = True
+        return instance
+
+    monkeypatch.setattr(main_window, "UpdateChecker", checker)
+
+
 def make_event(offset_ms: int = 0, *, severity: int | None = 6, message: str = "hello world",
                source_ip: str = "192.0.2.1", hostname: str | None = "host1",
                app_name: str | None = "app", facility: int | None = 1) -> SyslogEvent:

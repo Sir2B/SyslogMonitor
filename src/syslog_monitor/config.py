@@ -48,6 +48,7 @@ class Settings:
     tls_ca_file: str = ""  # set: clients must present a certificate signed by this CA
     theme: str = "system"
     language: str = "en"
+    update_check_enabled: bool = True
 
     def resolved_data_dir(self, config_dir: Path) -> Path:
         return Path(self.data_dir) if self.data_dir else config_dir / "data"
@@ -74,6 +75,8 @@ class Settings:
     def validate(self) -> list[str]:
         """Return human readable problems; empty list means valid."""
         errors: list[str] = []
+        if type(self.update_check_enabled) is not bool:
+            errors.append("Update check setting must be true or false.")
         try:
             ip = ipaddress.ip_address(self.bind_host)
             if ip.version != 4:

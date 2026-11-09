@@ -43,6 +43,14 @@ GERMAN_TRANSLATIONS = {
     "Receiving, storage and running jobs continue.": "Empfang, Speicherung und laufende Aufgaben laufen weiter.",
     "Stops receiving and running jobs, then closes the application.":
         "Stoppt den Empfang und laufende Aufgaben und schließt anschließend die Anwendung.",
+    "Check for updates automatically": "Automatisch nach Updates suchen",
+    "Checks GitHub once at startup. No popups or automatic downloads.":
+        "Prüft GitHub einmal beim Start. Keine Popups oder automatischen Downloads.",
+    "Update check setting must be true or false.": "Update-Prüfung muss wahr oder falsch sein.",
+    "Update available: {version}": "Update verfügbar: {version}",
+    "Open the latest release on GitHub. No automatic installation.":
+        "Neueste Version auf GitHub öffnen. Keine automatische Installation.",
+    "Could not open the update release page.": "Die Update-Seite konnte nicht geöffnet werden.",
     "Autoscroll on": "Autoscroll an",
     "Autoscroll off": "Autoscroll aus",
     "Start receiving": "Empfang starten",

@@ -83,6 +83,10 @@ class SettingsDialog(QDialog):
             self.language.addItem(label, code)
         self.language.setCurrentIndex(self.language.findData(settings.language))
         form.addRow(tr("Language:"), self.language)
+        self.update_check = QCheckBox(tr("Check for updates automatically"))
+        self.update_check.setChecked(settings.update_check_enabled)
+        self.update_check.setToolTip(tr("Checks GitHub once at startup. No popups or automatic downloads."))
+        form.addRow("", self.update_check)
         form.addRow(tr("Listen address (IPv4):"), self.host)
         form.addRow("", self.udp_enabled)
         form.addRow(tr("UDP port:"), self.port)
@@ -183,6 +187,7 @@ class SettingsDialog(QDialog):
             max_storage_mb=self.budget.value(),
             data_dir=self.data_dir.text().strip(),
             autostart_listener=self.autostart.isChecked(),
+            update_check_enabled=self.update_check.isChecked(),
             mcp_enabled=self.mcp_enabled.isChecked(),
             mcp_port=self.mcp_port.value(),
             boot_marker=self.boot_marker.text().strip(),

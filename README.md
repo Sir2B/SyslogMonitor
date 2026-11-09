@@ -67,6 +67,9 @@ button beside Search hides or shows the panel; drag its divider to adjust the he
 ## Everyday controls
 
 Use the left sidebar to switch between **Logs**, **Export**, and **Client validation**.
+Updates are checked once at startup in the background. A newer stable version is
+shown as a small status-bar link, without popups or automatic downloads. The link
+opens the official GitHub release page. Disable this in **Settings** if desired.
 **Settings**, **About**, reception and **Quit** are at the bottom. Expand the sidebar
 to see titles, or collapse it to a narrow icon rail; hover an icon for its label.
 Pages keep their state and running jobs while you switch. The app always starts in Logs.
