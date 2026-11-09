@@ -20,15 +20,16 @@ $packages = @(
     (Join-Path $DistributionDir "SyslogMonitor-$Version-portable.zip")
 )
 $screenshots = @($Screenshot)
+$gallery = @()
 if ($ScreenshotGalleryDir) {
-    $screenshots += @(
-        foreach ($name in @("light", "dark", "columns", "highlights", "settings", "export")) {
-            Join-Path $ScreenshotGalleryDir "screenshot-$name.png"
-        }
-    )
+    $gallery = @(Get-ChildItem -LiteralPath $ScreenshotGalleryDir -Filter "screenshot-*.png" -File |
+        ForEach-Object { $_.FullName })
+    if ($gallery.Count -eq 0) {
+        throw "No gallery screenshots found in $ScreenshotGalleryDir."
+    }
 }
 $assets = $screenshots + $packages
-foreach ($path in $assets) {
+foreach ($path in $assets + $gallery) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Expected release asset was not created: $path"
     }
