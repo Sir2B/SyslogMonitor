@@ -469,7 +469,7 @@ the first and last occurrence and the message text; columns can be sorted.
 |---|---|
 | **Exact text** | Only identical messages. |
 | **Ignore numbers** (default) | Messages that differ only in numbers. Numbers are shown as `#`, using the same number recognition as the selected-message statistics (`-?digits[.digits]`, including digits inside words such as `eth0`). **Variants** shows how many different exact texts a group contains. |
-| **Similar texts** | Exact texts whose words and punctuation match at least the chosen **Similarity** (0–100 %, default 80 %), measured as `2 × matching tokens / total tokens`. Numbers are not treated specially; they are compared like words. Texts are processed from most to least frequent and join the first group whose leading text is similar enough, so a chain of small changes cannot merge unrelated messages. The tooltip shows an example and the number of merged texts. |
+| **Similar texts** | Exact texts whose words and punctuation match at least the chosen **Similarity** (0–100 %, default 80 %), measured as `2 × matching tokens / total tokens`. Numbers are not treated specially; they are compared like words. Texts are processed from most to least frequent and join the first group whose leading text is similar enough, so a chain of small changes cannot merge unrelated messages. For merged groups the **Message** column shows the part shared by all texts (`…` for differing words); the tooltip shows the leading text, an example and the number of merged texts. |
 
 To stay responsive, the table lists at most the 5,000 most frequent groups;
 similar-text grouping compares the 2,000 most frequent exact texts.

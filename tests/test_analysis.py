@@ -41,6 +41,8 @@ def test_cluster_similar_merges_at_threshold_and_keeps_leader():
         "link up on port # speed # mbit", "disk full on volume #", "user # logged in"]
     link = merged[0]
     assert (link.count, link.variants, link.first_ms, link.last_ms, link.patterns) == (8, 3, 5, 50, 2)
+    assert link.common == link.label == "link … on port # speed # mbit"
+    assert merged[1].common == "" and merged[1].label == "disk full on volume #"
     assert sum(g.count for g in merged) == sum(g.count for g in groups)
     # A stricter threshold keeps the two link messages apart.
     assert len(cluster_similar(groups, 0.95)) == 4

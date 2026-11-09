@@ -137,10 +137,11 @@ class AnalysisPage(QWidget):
         self.table.setRowCount(len(report.groups))
         for row, group in enumerate(report.groups):
             share = group.count / report.total if report.total else 0.0
-            message = _item(group.pattern, group.pattern, Qt.AlignLeft | Qt.AlignVCenter)
+            message = _item(group.label, group.label, Qt.AlignLeft | Qt.AlignVCenter)
             tip = group.pattern if group.variants == 1 else tr(
                 "{pattern}\n\nExample: {example}", pattern=group.pattern, example=group.example)
             if group.patterns > 1:
+                tip = tr("Common: {common}", common=group.common) + "\n\n" + tip
                 tip += "\n" + tr("{count} similar patterns", count=format_count(group.patterns))
             message.setToolTip(tip)
             for column, item in (

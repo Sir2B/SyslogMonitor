@@ -30,6 +30,11 @@ class FrequencyGroup:
     last_ms: int
     example: str
     patterns: int = 1  # texts merged into a similar-text group
+    common: str = ""  # shared part of merged texts ("…" for differing words), empty if not merged
+
+    @property
+    def label(self) -> str:
+        return self.common or self.pattern
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +140,7 @@ def cluster_similar(groups: list[FrequencyGroup] | tuple[FrequencyGroup, ...],
     leaders: list[tuple[tuple[str, ...], int]] = []  # (tokens, index into merged)
     by_length: dict[int, list[int]] = {}
     merged: list[FrequencyGroup] = []
+    members: list[list[str]] = []
     matcher = SequenceMatcher(None, autojunk=False)
     for group in ordered:
         if should_stop():
@@ -165,10 +171,14 @@ def cluster_similar(groups: list[FrequencyGroup] | tuple[FrequencyGroup, ...],
             by_length.setdefault(size, []).append(len(leaders))
             leaders.append((words, len(merged)))
             merged.append(group)
+            members.append([])
             continue
+        members[target].append(group.pattern)
         current = merged[target]
         merged[target] = replace(
             current, count=current.count + group.count, variants=current.variants + group.variants,
             first_ms=min(current.first_ms, group.first_ms), last_ms=max(current.last_ms, group.last_ms),
             patterns=current.patterns + group.patterns)
+    merged = [replace(group, common=common_part(group.pattern, others)) if others else group
+              for group, others in zip(merged, members)]
     return tuple(sorted(merged, key=lambda g: (-g.count, g.pattern)))
