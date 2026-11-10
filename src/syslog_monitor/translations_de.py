@@ -264,8 +264,17 @@ GERMAN_TRANSLATIONS = {
     "Listen address (IPv4):": "Abhöradresse (IPv4):",
     "MCP port:": "MCP-Port:",
     "MCP server": "MCP-Server",
-    "MCP server for AI assistants (local only, read-only)":
-        "MCP-Server für KI-Assistenten (nur lokal, nur lesend)",
+    "MCP server for AI assistants (read-only)":
+        "MCP-Server für KI-Assistenten (nur lesend)",
+    "MCP address:": "MCP-Adresse:",
+    "Listening on {address} – reachable from the network.":
+        "Lauscht auf {address} – über das Netzwerk erreichbar.",
+    "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local programs can also retrieve messages.":
+        "Nur lokal (127.0.0.1), nur lesend und ohne Authentifizierung zugänglich: Andere lokale Programme können ebenfalls Nachrichten abrufen.",
+    "Listening on {address}: read-only and unauthenticated – every computer that can reach this port can retrieve messages. Other computers use this computer's IP address instead of 127.0.0.1 in the URL.":
+        "Lauscht auf {address}: nur lesend und ohne Authentifizierung – jeder Rechner, der diesen Port erreicht, kann Nachrichten abrufen. Andere Rechner verwenden in der URL die IP-Adresse dieses Rechners statt 127.0.0.1.",
+    "127.0.0.1 = local only; 0.0.0.0 = all network interfaces.\nOther addresses make the stored messages readable from the network without authentication.":
+        "127.0.0.1 = nur lokal; 0.0.0.0 = alle Netzwerkschnittstellen.\nAndere Adressen machen die gespeicherten Nachrichten ohne Authentifizierung über das Netzwerk lesbar.",
     "MCP server for AI assistants (local only, read-only) is disabled (Settings).":
         "MCP-Server für KI-Assistenten ist deaktiviert (Einstellungen).",
     "Message contains …": "Nachricht enthält …",
@@ -286,8 +295,8 @@ GERMAN_TRANSLATIONS = {
     "Storage budget:": "Speicherlimit:",
     "System": "System",
     "TCP port:": "TCP-Port:",
-    "TCP port on 127.0.0.1, URL: http://127.0.0.1:<port>/mcp":
-        "TCP-Port auf 127.0.0.1, URL: http://127.0.0.1:<port>/mcp",
+    "TCP port, URL: http://<address>:<port>/mcp":
+        "TCP-Port, URL: http://<Adresse>:<Port>/mcp",
     "The MCP server is running: {url}": "Der MCP-Server läuft: {url}",
     "The MCP server is not running: {error}": "Der MCP-Server läuft nicht: {error}",
     "The MCP server is disabled (Settings).": "Der MCP-Server ist deaktiviert (Einstellungen).",
@@ -511,8 +520,8 @@ GERMAN_TRANSLATIONS = {
     "Live: {received:.1f}/s received · {stored:.1f}/s stored · {dropped:.1f}/s dropped":
         "Live: {received:.1f}/s empfangen · {stored:.1f}/s gespeichert · {dropped:.1f}/s verworfen",
     "MCP off": "MCP aus",
-    "MCP server (local only, read-only, no authentication): {url}":
-        "MCP-Server (nur lokal, nur lesend, ohne Authentifizierung): {url}",
+    "MCP server (read-only, no authentication): {url}":
+        "MCP-Server (nur lesend, ohne Authentifizierung): {url}",
     "MCP server for AI assistants is disabled.": "MCP-Server für KI-Assistenten ist deaktiviert.",
     "MCP server is disabled (Settings).": "MCP-Server ist deaktiviert (Einstellungen).",
     "MCP server is not running: {error}": "MCP-Server läuft nicht: {error}",

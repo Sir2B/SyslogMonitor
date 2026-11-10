@@ -965,7 +965,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def check_firewall(self) -> None:
         settings = self.service.settings
-        self.firewall.request(settings.bind_host, settings.listener_endpoints)
+        self.firewall.request(*settings.firewall_scope)
 
     @Slot(object)
     def _apply_firewall(self, check: FirewallCheck) -> None:
@@ -1018,7 +1018,7 @@ class MainWindow(QMainWindow):
         if mcp is None:
             return
         port = mcp.port or self.service.settings.mcp_port
-        snippet = json.dumps(client_config(port), indent=2)
+        snippet = json.dumps(client_config(port, mcp.host), indent=2)
         box = QMessageBox(self)
         box.setWindowTitle(tr("MCP server"))
         box.setIcon(QMessageBox.Information if mcp.running or not mcp.enabled else QMessageBox.Warning)
@@ -1028,13 +1028,20 @@ class MainWindow(QMainWindow):
             box.setText(tr("MCP server is not running: {error}", error=mcp.error))
         else:
             box.setText(tr("MCP server is disabled (Settings)."))
-        box.setInformativeText(
-            tr("AI assistants (e.g. GitHub Copilot in VS Code) can read stored syslog messages, "
-               "for example “show all messages since the last reboot.”\n\n"
-               "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local "
-               "programs can also retrieve messages. Depending on the AI integration, queried "
-               "messages may be sent to an external provider.\n\n"
-               "VS Code: run “MCP: Open User Configuration” and add:\n\n") + snippet)
+        intro = tr("AI assistants (e.g. GitHub Copilot in VS Code) can read stored syslog messages, "
+                   "for example “show all messages since the last reboot.”\n\n"
+                   "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local "
+                   "programs can also retrieve messages. Depending on the AI integration, queried "
+                   "messages may be sent to an external provider.\n\n"
+                   "VS Code: run “MCP: Open User Configuration” and add:\n\n")
+        if not mcp.host.startswith("127."):
+            intro = intro.replace(
+                tr("Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local "
+                   "programs can also retrieve messages."),
+                tr("Listening on {address}: read-only and unauthenticated – every computer that can "
+                   "reach this port can retrieve messages. Other computers use this computer's "
+                   "IP address instead of 127.0.0.1 in the URL.", address=f"{mcp.host}:{port}"))
+        box.setInformativeText(intro + snippet)
         box.setTextInteractionFlags(Qt.TextSelectableByMouse)
         copy_button = box.addButton(tr("Copy configuration"), QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)

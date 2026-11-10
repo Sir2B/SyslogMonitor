@@ -118,3 +118,8 @@ def test_service_follows_settings(store):
 def test_client_config_snippet():
     assert client_config(8514) == {
         "servers": {"syslog-monitor": {"type": "http", "url": "http://127.0.0.1:8514/mcp"}}}
+
+def test_server_url_uses_the_listen_address():
+    assert server_url(8514, "0.0.0.0") == "http://127.0.0.1:8514/mcp"
+    assert server_url(8514, "192.0.2.5") == "http://192.0.2.5:8514/mcp"
+    assert client_config(1, "192.0.2.5")["servers"]["syslog-monitor"]["url"] == "http://192.0.2.5:1/mcp"

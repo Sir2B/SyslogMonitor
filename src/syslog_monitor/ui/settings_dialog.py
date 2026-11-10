@@ -102,20 +102,27 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Data directory:"), dir_row)
         form.addRow("", self.autostart)
 
-        self.mcp_enabled = QCheckBox(tr("MCP server for AI assistants (local only, read-only)"))
+        self.mcp_enabled = QCheckBox(tr("MCP server for AI assistants (read-only)"))
         self.mcp_enabled.setToolTip(
             tr("Local access requires no authentication. Other programs on this computer can also "
                "read stored messages."))
         self.mcp_enabled.setChecked(settings.mcp_enabled)
         self.mcp_port = QSpinBox(minimum=1, maximum=65535, value=settings.mcp_port)
-        self.mcp_port.setToolTip(tr("TCP port on 127.0.0.1, URL: http://127.0.0.1:<port>/mcp"))
-        self.mcp_port.setEnabled(settings.mcp_enabled)
-        self.mcp_enabled.toggled.connect(self.mcp_port.setEnabled)
+        self.mcp_port.setToolTip(tr("TCP port, URL: http://<address>:<port>/mcp"))
+        self.mcp_host = QLineEdit(settings.mcp_host)
+        self.mcp_host.setToolTip(
+            tr("127.0.0.1 = local only; 0.0.0.0 = all network interfaces.\n"
+               "Other addresses make the stored messages readable from the network without "
+               "authentication."))
+        for widget in (self.mcp_host, self.mcp_port):
+            widget.setEnabled(settings.mcp_enabled)
+            self.mcp_enabled.toggled.connect(widget.setEnabled)
         self.boot_marker = QLineEdit(settings.boot_marker)
         self.boot_marker.setToolTip(
             tr("Text marker(s) used to detect a device reboot (separate multiple markers with ;),\n"
                "e.g. for the AI query “messages since the last reboot”"))
         form.addRow("", self.mcp_enabled)
+        form.addRow(tr("MCP address:"), self.mcp_host)
         form.addRow(tr("MCP port:"), self.mcp_port)
         form.addRow(tr("Boot marker:"), self.boot_marker)
 
@@ -189,6 +196,7 @@ class SettingsDialog(QDialog):
             autostart_listener=self.autostart.isChecked(),
             update_check_enabled=self.update_check.isChecked(),
             mcp_enabled=self.mcp_enabled.isChecked(),
+            mcp_host=self.mcp_host.text().strip(),
             mcp_port=self.mcp_port.value(),
             boot_marker=self.boot_marker.text().strip(),
         )

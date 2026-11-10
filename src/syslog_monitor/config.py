@@ -16,10 +16,14 @@ APP_DIR_NAME = "SyslogMonitor"
 MIN_STORAGE_MB = 64
 MAX_RETENTION_DAYS = 3650
 DEFAULT_BOOT_MARKER = "Initializing system"
-MCP_HOST = "127.0.0.1"  # the MCP server is never reachable from other machines
+MCP_HOST = "127.0.0.1"  # default: the MCP server is not reachable from other machines
 Transport = Literal["UDP", "TCP", "TLS"]
 DEFAULT_TLS_PORT = 6514
 ListenerEndpoint = tuple[Transport, int]
+
+
+def is_local_host(host: str) -> bool:
+    return host.startswith("127.") or host == "localhost"
 
 
 def default_config_dir() -> Path:
@@ -37,6 +41,7 @@ class Settings:
     autostart_listener: bool = True
     mcp_enabled: bool = True
     mcp_port: int = 8514
+    mcp_host: str = MCP_HOST
     boot_marker: str = DEFAULT_BOOT_MARKER  # ";"-separated texts marking a device start (MCP)
     udp_enabled: bool = True
     tcp_enabled: bool = False
@@ -67,6 +72,17 @@ class Settings:
         if self.tls_enabled:
             endpoints.append(("TLS", self.tls_port))
         return tuple(endpoints)
+
+    @property
+    def firewall_scope(self) -> tuple[str, tuple[ListenerEndpoint, ...]]:
+        """(bind host, endpoints) the firewall check must cover: network-facing syslog
+        listeners plus the MCP server when it listens on a non-local address."""
+        endpoints = () if is_local_host(self.bind_host) else self.listener_endpoints
+        if self.mcp_enabled and not is_local_host(self.mcp_host):
+            endpoints += (("TCP", self.mcp_port),)
+        if not endpoints:
+            return self.bind_host, self.listener_endpoints
+        return "0.0.0.0", endpoints
 
     @property
     def tls_files(self) -> tuple[str, str, str]:
@@ -106,6 +122,11 @@ class Settings:
             errors.append(f"Storage budget must be at least {MIN_STORAGE_MB} MiB.")
         if not isinstance(self.mcp_port, int) or not 1 <= self.mcp_port <= 65535:
             errors.append("MCP port must be between 1 and 65535.")
+        try:
+            if ipaddress.ip_address(self.mcp_host).version != 4:
+                errors.append("Only IPv4 addresses are supported.")
+        except ValueError:
+            errors.append(f"Invalid IPv4 address: {self.mcp_host!r}")
         if not isinstance(self.boot_marker, str):
             errors.append("Boot marker must be text.")
         if self.theme not in ("system", "light", "dark"):

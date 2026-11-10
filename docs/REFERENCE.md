@@ -80,7 +80,8 @@ shown once if the status worsens. The check reads the *effective* rules, includi
 group policy (`-PolicyStore ActiveStore`); it does not require administrator rights and
 does not change settings. This is an approximation: restrictions on remote addresses
 or interface types are not evaluated. No firewall check is needed when listening only
-on `127.0.0.1`.
+on `127.0.0.1`. If the MCP server listens on another address (Settings → *MCP address*),
+its TCP port is included in the check.
 
 If the firewall reports a block, Windows may have automatically created block rules for
 the executable when it was first launched and a security prompt was dismissed or
@@ -547,8 +548,10 @@ VS Code can query and analyze stored messages, for example after an embedded Lin
 device restarts: *“Analyze the syslog messages from 192.0.2.50 since the last reboot.”*
 This is a reserved documentation address.
 
-- Available locally at `http://127.0.0.1:8514/mcp` only. It is not reachable over the
-  network and does not need a firewall rule.
+- By default available locally at `http://127.0.0.1:8514/mcp` only; it is then not
+  reachable over the network and does not need a firewall rule. Settings → *MCP address*
+  can change this (e.g. `0.0.0.0`); the server is then reachable **without
+  authentication** from the network and its TCP port is part of the firewall check.
 - Local access is **unauthenticated**: other local processes can also read messages
   through MCP. Depending on the AI integration, queried messages may be sent to an
   external provider. This warning is also shown in MCP details and Settings. Disable
@@ -674,7 +677,7 @@ src/syslog_monitor/
   service.py     CaptureService connects receiver, writer, and store
   config.py      Validated JSON settings
   mcp_tools.py   Read-only AI queries (testable without MCP/Qt dependencies)
-  mcp_server.py  Background-thread MCP server (Streamable HTTP, 127.0.0.1)
+  mcp_server.py  Background-thread MCP server (Streamable HTTP, default 127.0.0.1)
   app.py         Entry point: logging, single-instance lock, startup
   ui/            Qt layer: main window, table, minimap, filters, tray, dialogs
     main_window.py          Layout, navigation, filters, time range and orchestration

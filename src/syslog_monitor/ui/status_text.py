@@ -76,8 +76,13 @@ def mcp(service) -> tuple[str, str]:
     if service is None or not service.enabled:
         text, color, tip = tr("MCP off"), GREY, tr("MCP server for AI assistants is disabled.")
     elif service.running:
-        text, color = f"MCP ✓ :{service.port}", GREEN
-        tip = tr("MCP server (local only, read-only, no authentication): {url}", url=service.url)
+        host = getattr(service, "host", "127.0.0.1")
+        local = host.startswith("127.")
+        text, color = f"MCP ✓ {'' if local else host}:{service.port}", GREEN
+        tip = tr("MCP server (read-only, no authentication): {url}", url=service.url)
+        if not local:
+            tip += "\n" + tr("Listening on {address} – reachable from the network.",
+                              address=f"{host}:{service.port}")
     elif service.starting:
         text, color, tip = "MCP …", GREY, tr("MCP server is starting")
     else:

@@ -37,13 +37,14 @@ Severity names: emergency, alert, critical, error, warning, notice, info, debug.
 Results are bounded; follow 'next_after' to page through long result sets."""
 
 
-def client_config(port: int) -> dict[str, Any]:
+def client_config(port: int, host: str = MCP_HOST) -> dict[str, Any]:
     """VS Code ``.vscode/mcp.json`` / user ``mcp.json`` snippet for this server."""
-    return {"servers": {SERVER_NAME: {"type": "http", "url": server_url(port)}}}
+    return {"servers": {SERVER_NAME: {"type": "http", "url": server_url(port, host)}}}
 
 
-def server_url(port: int) -> str:
-    return f"http://{MCP_HOST}:{port}{MCP_PATH}"
+def server_url(port: int, host: str = MCP_HOST) -> str:
+    """URL for clients on this computer (a wildcard bind is reached via loopback)."""
+    return f"http://{MCP_HOST if host == '0.0.0.0' else host}:{port}{MCP_PATH}"
 
 
 def _call(fn, *args) -> dict[str, Any]:
@@ -171,7 +172,7 @@ class McpServerThread:
 
     @property
     def url(self) -> str:
-        return server_url(self.port)
+        return server_url(self.port, self.host)
 
     def start(self) -> bool:
         """Bind and start serving; on failure ``error`` describes the problem."""
@@ -257,7 +258,8 @@ class McpService:
         self.starting = False
         self.error = ""
         self.port: int | None = None
-        self._requested_port: int | None = None
+        self.host = MCP_HOST
+        self._requested: tuple[str, int] | None = None
         self._thread: McpServerThread | None = None
         self._lock = threading.RLock()
 
@@ -269,7 +271,7 @@ class McpService:
     @property
     def url(self) -> str | None:
         port = self.port
-        return server_url(port) if self.running and port else None
+        return server_url(port, self.host) if self.running and port else None
 
     def apply(self, settings: Settings) -> bool:
         """Start, stop or restart as needed; returns False if the server should run but cannot."""
@@ -279,11 +281,13 @@ class McpService:
             if not self.enabled:
                 self._stop()
                 return True
-            if self.running and self._requested_port == settings.mcp_port:
+            requested = (settings.mcp_host, settings.mcp_port)
+            if self.running and self._requested == requested:
                 return True
             self._stop()
-            thread = McpServerThread(self.tools, settings.mcp_port)
-            self._requested_port = settings.mcp_port
+            thread = McpServerThread(self.tools, settings.mcp_port, settings.mcp_host)
+            self._requested = requested
+            self.host = settings.mcp_host
             ok = thread.start()
             self._thread = thread if ok else None
             self.port = thread.port if ok else None

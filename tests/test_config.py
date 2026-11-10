@@ -109,3 +109,16 @@ def test_tls_settings_defaults_validation_and_roundtrip(tmp_path):
     path = tmp_path / "settings.json"
     save_settings(path, all_three)
     assert load_settings(path) == all_three
+
+def test_mcp_host_validation_and_firewall_scope():
+    from syslog_monitor.config import Settings
+    assert Settings().mcp_host == "127.0.0.1"
+    assert Settings(mcp_host="nope").validate()
+    assert not Settings(mcp_host="0.0.0.0").validate()
+    local = Settings(bind_host="127.0.0.1")
+    assert local.firewall_scope == ("127.0.0.1", (("UDP", 514),))
+    assert Settings(bind_host="127.0.0.1", mcp_host="0.0.0.0", mcp_port=8600).firewall_scope == (
+        "0.0.0.0", (("TCP", 8600),))
+    assert Settings(mcp_host="0.0.0.0", mcp_port=8600).firewall_scope == (
+        "0.0.0.0", (("UDP", 514), ("TCP", 8600)))
+    assert Settings(mcp_host="0.0.0.0", mcp_enabled=False).firewall_scope == ("0.0.0.0", (("UDP", 514),))
