@@ -88,6 +88,33 @@ the executable when it was first launched and a security prompt was dismissed or
 declined. The details dialog provides a command to remove those rules and add an allow
 rule (run it in an elevated PowerShell).
 
+## TLS end-to-end test script
+
+`python -m syslog_monitor.tls_test` sets up syslog over TLS for the **normal** receiver and
+verifies it (unlike the client checks below, which use a separate test listener).
+Close Syslog Monitor first or restart it afterwards; a running instance keeps its
+old settings and would restore them when its Settings dialog is saved.
+
+```powershell
+python -m syslog_monitor.tls_test setup [--name syslog.example.test] [--port 6514] [--mtls]
+python -m syslog_monitor.tls_test check [--host 127.0.0.1]   # built-in TLS client
+python -m syslog_monitor.tls_test wait                       # message from a real device
+```
+
+- **setup** creates a test CA and a server certificate for the given names plus this
+  computer's host names and IPv4 addresses (`--mtls`: also a client certificate and
+  required client authentication). It enables TLS in `settings.json` (backup
+  `settings.json.bak`) and writes everything to `%LOCALAPPDATA%\SyslogMonitor\tls-test`,
+  including `rsyslog-tls.conf` and `syslog-ng-tls.conf` for the sending device
+  (copy `ca.pem`, and with mTLS `client.pem`/`client.key`, to `/etc/syslog-tls/`).
+  It also prints the firewall command for the TLS port.
+- **check** connects like a device with full certificate and hostname validation,
+  sends one octet-counted RFC 5425 message and confirms that it was stored.
+- **wait** prints a token, e.g. for `logger <token>` on the device, and waits until a
+  message containing it was stored.
+
+Exit code 0 means success. The private keys in `tls-test` are for tests only.
+
 ## Guided syslog client checks
 
 Open **Client validation** in the left sidebar. The diagnostic listener uses a separate
