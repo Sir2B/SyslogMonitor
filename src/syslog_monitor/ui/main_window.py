@@ -11,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QDateTime, QEvent, QSettings, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit, QGroupBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QMainWindow,
     QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QMenu, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
@@ -69,6 +69,8 @@ RANGE_PRESETS: tuple[tuple[str, int | None], ...] = (
 DEFAULT_RANGE_INDEX = 3
 CUSTOM_RANGE_INDEX = len(RANGE_PRESETS)  # extra combo entry "From / To"
 DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
+# Mid tones that stay readable on light and dark backgrounds.
+SECTION_COLORS = {"filter": "#1e88e5", "highlight": "#9c4dcc", "search": "#00897b"}
 PAGES = ("logs", "analysis", "import", "export", "validation", "settings", "about", "quit")
 
 
@@ -245,11 +247,18 @@ class MainWindow(QMainWindow):
         self.search_text.textChanged.connect(self._reset_search)
         self.search_options.changed.connect(self._reset_search)
         self._reset_search()
-        search_row = QHBoxLayout()
-        for widget in (QLabel(tr("Search:")), self.search_text, self.search_options,
+        search_fields = QWidget()
+        search_fields_layout = QHBoxLayout(search_fields)
+        search_fields_layout.setContentsMargins(0, 0, 0, 0)
+        for widget in (self.search_text, self.search_options,
                        self.search_previous, self.search_next, self.search_result):
-            search_row.addWidget(widget)
-        search_row.setStretch(1, 3)
+            search_fields_layout.addWidget(widget)
+        search_fields_layout.setStretch(0, 3)
+        self.search_section = self._section(
+            "search", tr("Search"), SECTION_COLORS["search"],
+            tr("Jumps between matching messages; nothing is hidden or colored."), search_fields)
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.search_section, 1)
         focus_search = QAction(self, shortcut=QKeySequence.Find)
         focus_search.triggered.connect(self.focus_search)
         self.addAction(focus_search)
@@ -378,14 +387,21 @@ class MainWindow(QMainWindow):
         )
         self._rules_height_timer = QTimer(self, singleShot=True)
         self._rules_height_timer.timeout.connect(self._update_rules_height)
-        for scroll, panel in ((self.filters_scroll, self.filter_bar),
-                              (self.highlights_scroll, self.highlights)):
+        self.filter_section = self._section(
+            "filter", tr("Filter"), SECTION_COLORS["filter"],
+            tr("Hides every message that does not match; counts and minimap follow the filter."),
+            self.filters_scroll)
+        self.highlight_section = self._section(
+            "highlight", tr("Highlights"), SECTION_COLORS["highlight"],
+            tr("Colors matching messages; all messages stay visible."), self.highlights_scroll)
+        for scroll, panel, section in ((self.filters_scroll, self.filter_bar, self.filter_section),
+                                       (self.highlights_scroll, self.highlights, self.highlight_section)):
             scroll.setFrameShape(QScrollArea.NoFrame)
             scroll.setWidget(panel)
             scroll.setMinimumWidth(200)
             panel.installEventFilter(self)
             scroll.viewport().installEventFilter(self)
-            self.rules_splitter.addWidget(scroll)
+            self.rules_splitter.addWidget(section)
         for index in (0, 1):
             self.rules_splitter.setCollapsible(index, False)
             self.rules_splitter.setStretchFactor(index, 1)
@@ -528,6 +544,24 @@ class MainWindow(QMainWindow):
             self._rules_height_timer.start(0)
         return super().eventFilter(watched, event)
 
+    def _section(self, name: str, title: str, color: str, tip: str, content: QWidget) -> QFrame:
+        """Framed area with a colored edge and caption so filter, highlights and search are distinct."""
+        frame = QFrame(objectName=f"{name}Section")
+        frame.setStyleSheet(
+            f"QFrame#{name}Section {{ border: 1px solid palette(mid); border-left: 4px solid {color}; "
+            "border-radius: 4px; }")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(6, 3, 4, 3)
+        caption = QLabel(title, objectName="sectionCaption")
+        caption.setStyleSheet(f"color: {color}; font-weight: bold;")
+        caption.setMinimumWidth(caption.fontMetrics().horizontalAdvance(tr("Highlights")) + 12)
+        caption.setAlignment(Qt.AlignLeft | Qt.AlignTop if name != "search" else Qt.AlignLeft | Qt.AlignVCenter)
+        frame.setToolTip(tip)
+        caption.setToolTip(tip)
+        layout.addWidget(caption)
+        layout.addWidget(content, 1)
+        return frame
+
     def _update_rules_height(self) -> None:
         required_heights = []
         row_height = 0
@@ -543,7 +577,8 @@ class MainWindow(QMainWindow):
                 required += panel.layout().spacing() + panel._editors.sizeHint().height()
             panel.setMinimumHeight(required)
             required_heights.append(required)
-        height = min(max(required_heights), 3 * row_height + 6)
+        frame = self.filter_section.layout().contentsMargins()
+        height = min(max(required_heights), 3 * row_height + 6) + frame.top() + frame.bottom() + 2
         if self.rules_splitter.height() != height:
             self.rules_splitter.setFixedHeight(height)
 

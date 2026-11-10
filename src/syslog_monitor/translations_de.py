@@ -267,6 +267,15 @@ GERMAN_TRANSLATIONS = {
     "MCP server for AI assistants (read-only)":
         "MCP-Server für KI-Assistenten (nur lesend)",
     "MCP address:": "MCP-Adresse:",
+    "Search": "Suche",
+    "Filter": "Filter",
+    "Highlights": "Highlights",
+    "Jumps between matching messages; nothing is hidden or colored.":
+        "Springt zwischen passenden Nachrichten; nichts wird ausgeblendet oder eingefärbt.",
+    "Hides every message that does not match; counts and minimap follow the filter.":
+        "Blendet alle nicht passenden Nachrichten aus; Zähler und Minikarte folgen dem Filter.",
+    "Colors matching messages; all messages stay visible.":
+        "Färbt passende Nachrichten ein; alle Nachrichten bleiben sichtbar.",
     "Listening on {address} – reachable from the network.":
         "Lauscht auf {address} – über das Netzwerk erreichbar.",
     "Only accessible locally (127.0.0.1), read-only, and unauthenticated: other local programs can also retrieve messages.":

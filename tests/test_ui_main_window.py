@@ -218,7 +218,9 @@ def test_time_controls_are_grouped_with_minimap(qtbot, window):
     # Highlight rules form an independent compact list, like the filter rules.
     assert window.highlights._editors.isHidden()
     assert window.highlights.rule_rows[0].summary_button.isVisible()
-    assert window.filters_scroll.geometry().right() < window.highlights_scroll.geometry().left()
+    assert window.filter_section.geometry().right() < window.highlight_section.geometry().left()
+    assert window.filters_scroll.parent() is window.filter_section
+    assert window.search_text.parent().parent() is window.search_section
     assert window.rules_splitter.geometry().bottom() < section.geometry().top()
     assert window.splitter.width() == window.rules_splitter.width()
     assert window.mode_label.parentWidget() is window.statusBar()
@@ -283,6 +285,8 @@ def test_rules_height_grows_to_three_rows_then_scrolls_and_shrinks(qtbot, window
         panel._flow_layout.itemAt(index).sizeHint().height()
         for panel in (window.filter_bar, window.highlights)
         for index in range(panel._flow_layout.count()))
+    margins = window.filter_section.layout().contentsMargins()
+    row_height += margins.top() + margins.bottom() + 2
     qtbot.waitUntil(lambda: window.rules_splitter.height() <= row_height + 6)
     initial_height = window.rules_splitter.height()
     assert initial_height <= row_height + 6
