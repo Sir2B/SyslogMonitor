@@ -575,4 +575,36 @@ GERMAN_TRANSLATIONS = {
     "does not contain all words": "enthält nicht alle Wörter",
     "AI assistants (e.g. GitHub Copilot in VS Code) can read stored syslog messages, for example “show all messages since the last reboot.”\n\nOnly accessible locally (127.0.0.1), read-only, and unauthenticated: other local programs can also retrieve messages. Depending on the AI integration, queried messages may be sent to an external provider.\n\nVS Code: run “MCP: Open User Configuration” and add:\n\n":
         "KI-Assistenten (z. B. GitHub Copilot in VS Code) können gespeicherte Syslog-Nachrichten lesen, z. B. mit „Zeige alle Nachrichten seit dem letzten Neustart“.\n\nNur lokal (127.0.0.1), nur lesend und ohne Authentifizierung zugänglich: Andere lokale Programme können ebenfalls Nachrichten abrufen. Je nach KI-Integration können abgefragte Nachrichten an einen externen Anbieter gesendet werden.\n\nVS Code: „MCP: Open User Configuration“ ausführen und Folgendes hinzufügen:\n\n",
+    'Import': 'Import',
+    'Import messages from a file': 'Nachrichten aus einer Datei importieren',
+    'Import messages': 'Nachrichten importieren',
+    'Importing…': 'Importiere…',
+    'Importing… {count} messages added': 'Importiere… {count} Nachrichten hinzugefügt',
+    'Import failed: {message}': 'Import fehlgeschlagen: {message}',
+    'Imported {count} messages from {path} ({kind}).': '{count} Nachrichten aus {path} importiert ({kind}).',
+    'Import cancelled after {count} messages.': 'Import nach {count} Nachrichten abgebrochen.',
+    'Cancelling import…': 'Import wird abgebrochen…',
+    'Log files (*.csv *.jsonl *.json *.log *.txt);;All files (*)': 'Logdateien (*.csv *.jsonl *.json *.log *.txt);;Alle Dateien (*)',
+    'CSV export': 'CSV-Export',
+    'JSONL export': 'JSONL-Export',
+    'tab-separated syslog server log': 'tabulatorgetrenntes Syslog-Server-Log',
+    'one message per line': 'eine Nachricht pro Zeile',
+    'Adds messages from a file to the stored log. The format is detected automatically:\n• CSV or JSONL files exported by Syslog Monitor (with raw_base64 the original packets are restored exactly)\n• tab-separated logs of syslog servers (sender, time, version, facility, severity, tag, message)\n• text files with one syslog message per line, with or without <PRI> (e.g. /var/log/syslog)\n\nImported messages keep their original time where available. Messages older than the retention period in Settings are removed by the next cleanup. Importing the same file twice adds the messages twice.':
+        'Fügt Nachrichten aus einer Datei zum gespeicherten Log hinzu. Das Format wird automatisch erkannt:\n• CSV- oder JSONL-Dateien aus dem Export von Syslog Monitor (mit raw_base64 werden die Originalpakete exakt wiederhergestellt)\n• tabulatorgetrennte Logs von Syslog-Servern (Absender, Zeit, Version, Facility, Schweregrad, Tag, Nachricht)\n• Textdateien mit einer Syslog-Nachricht pro Zeile, mit oder ohne <PRI> (z. B. /var/log/syslog)\n\nImportierte Nachrichten behalten wenn möglich ihre ursprüngliche Zeit. Nachrichten, die älter als die Aufbewahrungsdauer in den Einstellungen sind, werden bei der nächsten Bereinigung entfernt. Wird dieselbe Datei zweimal importiert, werden die Nachrichten doppelt hinzugefügt.',
+    'No file selected.':
+        'Keine Datei ausgewählt.',
+    'Detected automatically. Change it if the preview looks wrong.':
+        'Automatisch erkannt. Ändern, falls die Vorschau falsch aussieht.',
+    'File:':
+        'Datei:',
+    'Choose file…':
+        'Datei wählen…',
+    'Preview (first {count} messages as they will be stored):':
+        'Vorschau (erste {count} Nachrichten, so wie sie gespeichert werden):',
+    'The file cannot be read in this format: {message}':
+        'Die Datei kann in diesem Format nicht gelesen werden: {message}',
+    'Detected format: {kind}. Check the preview, then click Import.':
+        'Erkanntes Format: {kind}. Vorschau prüfen, dann auf „Import“ klicken.',
+    'The file contains no messages.':
+        'Die Datei enthält keine Nachrichten.',
 }

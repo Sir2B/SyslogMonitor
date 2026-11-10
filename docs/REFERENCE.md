@@ -478,6 +478,25 @@ The summary line states when a limit applied. Counting runs on a separate backgr
 connection and is cancelled when options change; worst-case similar-text grouping of
 2,000 completely different patterns took about 4.5 s on a 100,000-message database.
 
+### Import
+
+The **Import** page adds messages from a file to the stored log in a background thread;
+the view refreshes when it finishes. The format is detected from the first non-empty line:
+
+- **CSV / JSONL exports** of this application (header or JSON objects with export column
+  names). With `raw_base64` the original packets are parsed again, so the result matches the
+  original exactly; otherwise the exported columns are restored, including the spreadsheet
+  formula protection being undone.
+- **Tab-separated syslog server logs**: sender, local reception time (`Nov 10 07:46:01`, the
+  year is the latest one not in the future), version, facility, severity, tag, message. The
+  PRI is rebuilt from facility and severity and the line is parsed like a received datagram.
+- **One message per line**, with `<PRI>` (raw datagrams) or without (e.g. `/var/log/syslog`).
+  Lines without PRI keep facility and severity empty. The reception time is the reported
+  time, or the import time if none is found; the sender is the reported hostname or `import`.
+
+Imports append and do not deduplicate. Messages older than the retention period are removed
+by the next cleanup. Cancelling keeps the batches (1,000 messages each) already written.
+
 ### Export
 
 Open **Export** in the sidebar to save **CSV** or **JSONL**. The period dropdown offers:

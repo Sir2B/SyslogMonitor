@@ -37,6 +37,7 @@ from syslog_monitor.ui.about_dialog import AboutDialog
 from syslog_monitor.ui.analysis_page import AnalysisPage
 from syslog_monitor.ui.diagnostics_dialog import DiagnosticsDialog
 from syslog_monitor.ui.export_dialog import ExportDialog
+from syslog_monitor.ui.import_dialog import ImportDialog
 from syslog_monitor.ui.filter_bar import ALL_SEVERITIES, FilterBar
 from syslog_monitor.ui.firewall_status import Checker, FirewallMonitor
 from syslog_monitor.ui.formatting import format_count, format_ts
@@ -68,7 +69,7 @@ RANGE_PRESETS: tuple[tuple[str, int | None], ...] = (
 DEFAULT_RANGE_INDEX = 3
 CUSTOM_RANGE_INDEX = len(RANGE_PRESETS)  # extra combo entry "From / To"
 DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
-PAGES = ("logs", "analysis", "export", "validation", "settings", "about", "quit")
+PAGES = ("logs", "analysis", "import", "export", "validation", "settings", "about", "quit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,7 @@ class MainWindow(QMainWindow):
         self._watch_request: int | None = None
         self._rate_tracker = RateTracker()
         self._export_dialog: ExportDialog | None = None
+        self._import_dialog: ImportDialog | None = None
         self._diagnostics_dialog: DiagnosticsDialog | None = None
         self._analysis_page: AnalysisPage | None = None
         self._settings_page: SettingsDialog | None = None
@@ -204,6 +206,9 @@ class MainWindow(QMainWindow):
         self.about_action.triggered.connect(self.show_about)
         self.diagnostics_action = QAction(tr("Client validation"), self)
         self.diagnostics_action.triggered.connect(self.open_diagnostics)
+        self.import_action = QAction(tr("Import"), self)
+        self.import_action.setToolTip(tr("Import messages from a file"))
+        self.import_action.triggered.connect(lambda: self.show_page("import"))
         self.export_action = QAction(tr("Export"), self)
         self.export_action.triggered.connect(self.open_export)
         self.analysis_action = QAction(tr("Analysis"), self)
@@ -404,6 +409,7 @@ class MainWindow(QMainWindow):
         for name, action in (
             ("logs", self.logs_action),
             ("analysis", self.analysis_action),
+            ("import", self.import_action),
             ("export", self.export_action),
             ("validation", self.diagnostics_action),
         ):
@@ -1044,6 +1050,10 @@ class MainWindow(QMainWindow):
             if name == "analysis":
                 dialog = AnalysisPage(self.service.db_path, self.list_filter, self)
                 self._analysis_page = dialog
+            elif name == "import":
+                dialog = ImportDialog(self.service.db_path, self, embedded=True)
+                dialog.imported.connect(self.refresh_all)
+                self._import_dialog = dialog
             elif name == "export":
                 dialog = ExportDialog(self.service.db_path, self.service.settings.boot_marker,
                                       self.filter_bar.current_filter(), self, embedded=True)
@@ -1108,7 +1118,7 @@ class MainWindow(QMainWindow):
             page_layout.addWidget(title)
             scroll = QScrollArea(widgetResizable=True)
             scroll.setFrameShape(QScrollArea.NoFrame)
-            content_widths = {"about": 640, "settings": 860, "export": 1000, "validation": 1000}
+            content_widths = {"about": 640, "settings": 860, "import": 1000, "export": 1000, "validation": 1000}
             if name in content_widths:
                 dialog.setMaximumWidth(content_widths[name])
                 content = QWidget()
@@ -1228,6 +1238,8 @@ class MainWindow(QMainWindow):
             self._analysis_page.shutdown()
         if self._export_dialog is not None:
             self._export_dialog.shutdown()
+        if self._import_dialog is not None:
+            self._import_dialog.shutdown()
         if self._diagnostics_dialog is not None:
             self._diagnostics_dialog.shutdown()
         for timer in self._timers:

@@ -24,7 +24,8 @@ def test_client_checks_dialog_keeps_normal_receiver_unchanged(qtbot, window):
 def test_sidebar_navigation_is_compact_expandable_and_stateful(qtbot, window):
     assert window.current_page == "logs"
     assert list(window.sidebar.buttons) == [
-        "logs", "analysis", "export", "validation", "receive", "settings", "about", "quit"]
+        "logs", "analysis", "import", "export", "validation", "receive", "settings", "about",
+        "quit"]
     collapsed_width = window.sidebar.width()
     compact_icon = window.sidebar.buttons["logs"].iconSize()
     assert all(not button.icon().isNull() for button in window.sidebar.buttons.values())
@@ -359,3 +360,21 @@ def test_about_navigation_opens_embedded_page(qtbot, window, monkeypatch):
     assert dialog.isVisible()
     qtbot.keyClick(dialog, Qt.Key_Escape)
     assert dialog.isVisible()
+
+
+def test_import_page_adds_messages_from_a_file(qtbot, window, tmp_path):
+    source = tmp_path / "messages.log"
+    source.write_text("<34>Oct 11 22:14:15 mymachine su: imported line\n", encoding="utf-8")
+    window.show_page("import")
+    dialog = window._import_dialog
+    assert not dialog.import_button.isEnabled()
+    dialog.choose_file(str(source))
+    assert dialog.format.currentData() == "lines"
+    assert dialog.preview.rowCount() == 1 and dialog.preview.item(0, 1).text() == "mymachine"
+    assert dialog.preview.item(0, 6).text() == "imported line"
+    dialog.format.setCurrentIndex(dialog.format.findData("jsonl"))
+    assert dialog.preview.rowCount() == 0 and not dialog.import_button.isEnabled()
+    dialog.format.setCurrentIndex(dialog.format.findData("lines"))
+    dialog.start_import()
+    qtbot.waitUntil(lambda: dialog.worker is None, timeout=10_000)
+    assert "1" in dialog.status.text() and "messages.log" in dialog.status.text()

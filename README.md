@@ -48,6 +48,7 @@ display a warning.
 - **Explore the timeline**: click to jump to a time, or drag to zoom into a period.
 - **Highlight important text** with custom colors and optional notifications.
 - **Export logs** to CSV or JSONL, including a device's messages since its last reboot.
+- **Import logs** from exported CSV/JSONL files, tab-separated syslog server logs, or plain syslog text files.
 - **Check a syslog client** with guided UDP/TCP and TLS certificate-validation tests
   on a separate test port. Optionally trigger Linux log messages via SSH.
   Export the results; this is not official certification.
