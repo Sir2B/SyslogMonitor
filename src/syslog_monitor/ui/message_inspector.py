@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from html import escape
 
-from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QMouseEvent, QPainter, QPaintEvent, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QSizePolicy, QSlider,
@@ -108,6 +108,17 @@ class FrequencyGraph(QWidget):
         return tr("{start} – {end}: {count} occurrences", start=format_ts(start),
                   end=format_ts(start + self.bucket_ms, with_date=False),
                   count=format_count(self.series[index]))
+
+    def event(self, event: QEvent) -> bool:
+        # Bars show their own tooltip on mouse move; keep the parent's tooltip from appearing on top.
+        if event.type() == QEvent.ToolTip:
+            index = self.bucket_at(event.pos().x())
+            if index is None:
+                QToolTip.hideText()
+            else:
+                QToolTip.showText(event.globalPos() + QPoint(12, 12), self.bucket_tooltip(index), self)
+            return True
+        return super().event(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         index = self.bucket_at(event.position().x())

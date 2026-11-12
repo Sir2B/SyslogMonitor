@@ -34,7 +34,7 @@ def _stats():
                              1_200_000)
 
 
-def test_statistics_mode_switch_graph_and_regex(qtbot):
+def test_statistics_mode_switch_graph_and_regex(qtbot, monkeypatch):
     inspector = MessageInspector()
     qtbot.addWidget(inspector)
     inspector.resize(1200, 260)
@@ -60,6 +60,15 @@ def test_statistics_mode_switch_graph_and_regex(qtbot):
     assert "per 20 min" in inspector.footer.text()
     assert inspector.graph.bucket_at(inspector.graph.width() - 2) == 2
     assert "2 occurrences" in inspector.graph.bucket_tooltip(2)
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QHelpEvent
+    shown = []
+    monkeypatch.setattr("syslog_monitor.ui.message_inspector.QToolTip.showText",
+                        lambda pos, text, widget=None: shown.append((text, widget)))
+    point = QPoint(inspector.graph.width() - 2, inspector.graph.height() // 2)
+    help_event = QHelpEvent(QEvent.ToolTip, point, inspector.graph.mapToGlobal(point))
+    assert QApplication.sendEvent(inspector.graph, help_event)
+    assert len(shown) == 1 and "2 occurrences" in shown[0][0] and shown[0][1] is inspector.graph
     inspector.graph.grab()
     inspector.mode_buttons[MODE_SIMILAR].click()
     assert inspector.graph.series == (1, 0, 1)  # no similar series: falls back to exact
