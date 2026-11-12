@@ -29,7 +29,8 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from syslog_monitor.config import DEFAULT_TLS_PORT, Settings, default_config_dir, load_settings, save_settings
@@ -39,8 +40,27 @@ TLS_DIR_NAME = "tls-test"
 DEVICE_DIR = "/etc/syslog-tls"
 
 
-def _key():
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+KEY_TYPES = {
+    "rsa-2048": "RSA 2048",
+    "rsa-3072": "RSA 3072",
+    "rsa-4096": "RSA 4096",
+    "ecdsa-p256": "ECDSA P-256",
+    "ecdsa-p384": "ECDSA P-384",
+    "ed25519": "Ed25519",
+}
+DEFAULT_KEY_TYPE = "rsa-2048"
+
+
+def _key(key_type: str = DEFAULT_KEY_TYPE):
+    if key_type.startswith("rsa-"):
+        return rsa.generate_private_key(public_exponent=65537, key_size=int(key_type[4:]))
+    if key_type == "ecdsa-p256":
+        return ec.generate_private_key(ec.SECP256R1())
+    if key_type == "ecdsa-p384":
+        return ec.generate_private_key(ec.SECP384R1())
+    if key_type == "ed25519":
+        return ed25519.Ed25519PrivateKey.generate()
+    raise ValueError(f"Unknown key type: {key_type}")
 
 
 def _pem_key(key) -> bytes:
@@ -79,12 +99,14 @@ def _issue(subject: str, key, issuer, issuer_key, days: int, *, ca: bool = False
             x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
     else:
         builder = (builder
-                   .add_extension(x509.KeyUsage(True, False, True, False, False, False, False, False, False),
+                   .add_extension(x509.KeyUsage(True, False, isinstance(key, rsa.RSAPrivateKey),
+                                                False, False, False, False, False, False),
                                   critical=True)
                    .add_extension(x509.ExtendedKeyUsage([usage]), critical=False))
         if names:
             builder = builder.add_extension(_san(names), critical=False)
-    return builder.sign(issuer_key, hashes.SHA256())
+    algorithm = None if isinstance(issuer_key, ed25519.Ed25519PrivateKey) else hashes.SHA256()
+    return builder.sign(issuer_key, algorithm)
 
 
 def local_names() -> list[str]:
@@ -97,23 +119,38 @@ def local_names() -> list[str]:
     return [name for name in dict.fromkeys(names) if name]
 
 
-def create_certificates(directory: Path, names: list[str], *, mtls: bool, days: int = 365) -> dict[str, Path]:
+def create_certificates(directory: Path, names: list[str], *, mtls: bool, days: int = 365,
+                        key_type: str = DEFAULT_KEY_TYPE) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
-    ca_key = _key()
+    ca_key = _key(key_type)
     ca = _issue("Syslog Monitor test CA", ca_key, None, ca_key, days, ca=True)
-    server_key = _key()
+    server_key = _key(key_type)
     server = _issue(names[0], server_key, ca, ca_key, days, usage=ExtendedKeyUsageOID.SERVER_AUTH, names=names)
-    paths = {"ca": directory / "ca.pem", "server": directory / "server.pem"}
-    paths["ca"].write_bytes(_pem(ca))
-    paths["server"].write_bytes(_pem(server) + _pem(ca) + _pem_key(server_key))
+    files = {
+        "ca": ("ca.pem", _pem(ca)),
+        "ca_crt": ("ca.crt", _pem(ca)),
+        "ca_der": ("ca.der", ca.public_bytes(serialization.Encoding.DER)),
+        "ca_cer": ("ca.cer", ca.public_bytes(serialization.Encoding.DER)),
+        "server": ("server.pem", _pem(server) + _pem(ca) + _pem_key(server_key)),
+        "server_crt": ("server.crt", _pem(server)),
+        "server_chain": ("server-chain.crt", _pem(server) + _pem(ca)),
+        "server_key": ("server.key", _pem_key(server_key)),
+    }
     if mtls:
-        client_key = _key()
+        client_key = _key(key_type)
         client = _issue("syslog-test-client", client_key, ca, ca_key, days,
                         usage=ExtendedKeyUsageOID.CLIENT_AUTH)
-        paths["client_cert"] = directory / "client.pem"
-        paths["client_key"] = directory / "client.key"
-        paths["client_cert"].write_bytes(_pem(client))
-        paths["client_key"].write_bytes(_pem_key(client_key))
+        files.update({
+            "client_cert": ("client.pem", _pem(client)),
+            "client_crt": ("client.crt", _pem(client)),
+            "client_key": ("client.key", _pem_key(client_key)),
+            "client_p12": ("client.p12", pkcs12.serialize_key_and_certificates(
+                b"syslog-test-client", client_key, client, [ca], serialization.NoEncryption())),
+        })
+    paths = {}
+    for name, (filename, data) in files.items():
+        paths[name] = directory / filename
+        paths[name].write_bytes(data)
     return paths
 
 
@@ -147,11 +184,12 @@ def device_snippets(server: str, port: int, mtls: bool) -> dict[str, str]:
     return {"rsyslog-tls.conf": rsyslog, "syslog-ng-tls.conf": syslog_ng}
 
 
-def setup(config_dir: Path, names: list[str], port: int, mtls: bool, days: int) -> int:
+def setup(config_dir: Path, names: list[str], port: int, mtls: bool, days: int,
+          key_type: str = DEFAULT_KEY_TYPE) -> int:
     settings_path = config_dir / "settings.json"
     settings = load_settings(settings_path)
     directory = config_dir / TLS_DIR_NAME
-    paths = create_certificates(directory, names, mtls=mtls, days=days)
+    paths = create_certificates(directory, names, mtls=mtls, days=days, key_type=key_type)
     new = replace(settings, tls_enabled=True, tls_port=port, tls_cert_file=str(paths["server"]),
                   tls_key_file="", tls_ca_file=str(paths["ca"]) if mtls else "")
     if problems := new.validate():
@@ -165,6 +203,10 @@ def setup(config_dir: Path, names: list[str], port: int, mtls: bool, days: int) 
         (directory / name).write_text(text, encoding="utf-8", newline="\n")
     device_files = ["ca.pem"] + (["client.pem", "client.key"] if mtls else [])
     print(f"Certificates and device configuration: {directory}")
+    print("  CA:     ca.crt / ca.pem (PEM), ca.der / ca.cer (DER)")
+    print("  Server: server.crt, server.key, server-chain.crt; server.pem = chain + key (used here)")
+    if mtls:
+        print("  Client: client.crt / client.pem, client.key, client.p12 (PKCS#12, no password)")
     print(f"Server certificate names: {', '.join(names)}")
     print(f"Syslog Monitor: TLS on port {port}" + (", client certificates required" if mtls else ""))
     print("Restart Syslog Monitor so the TLS listener uses the new files (close it before 'setup' "
@@ -256,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--port", type=int, default=DEFAULT_TLS_PORT)
     s.add_argument("--mtls", action="store_true", help="require client certificates")
     s.add_argument("--days", type=int, default=365)
+    s.add_argument("--key-type", choices=list(KEY_TYPES), default=DEFAULT_KEY_TYPE)
     c = commands.add_parser("check", help="send a TLS test message and confirm it was stored")
     c.add_argument("--host", default="127.0.0.1")
     c.add_argument("--timeout", type=float, default=15)
@@ -265,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "setup":
         names = args.name + [name for name in local_names() if name not in args.name]
-        return setup(args.config_dir, names, args.port, args.mtls, args.days)
+        return setup(args.config_dir, names, args.port, args.mtls, args.days, args.key_type)
     if args.command == "check":
         return check(args.config_dir, args.host, args.timeout)
     return wait(args.config_dir, args.token, args.timeout)

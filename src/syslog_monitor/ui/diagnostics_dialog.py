@@ -168,6 +168,10 @@ class DiagnosticsDialog(QDialog):
         self.instructions.setWordWrap(True)
         self.ca_button = QPushButton(tr("Create test CA and export"))
         self.ca_button.clicked.connect(self.export_ca)
+        self.ca_button.setToolTip(tr(
+            "Only for this check: creates a temporary CA (valid 7 days) and deliberately broken server "
+            "certificates to test whether the device rejects them. Only the CA is imported on the device. "
+            "For real TLS reception use Settings → TLS → Create certificates… instead."))
         self.start_button = QPushButton(tr("Start check"))
         self.start_button.clicked.connect(self.start_check)
         self.stop_button = QPushButton(tr("Stop check"), enabled=False)
@@ -275,8 +279,9 @@ class DiagnosticsDialog(QDialog):
         self.status.setText(tr("Check error: {error}", error=tr(str(exc))))
 
     def export_ca(self) -> None:
-        filename, _ = QFileDialog.getSaveFileName(self, tr("Export test CA"), "syslog-test-ca.pem",
-                                                 "PEM (*.pem)")
+        filename, chosen = QFileDialog.getSaveFileName(
+            self, tr("Export test CA"), "syslog-test-ca.crt",
+            "CRT (*.crt);;PEM (*.pem);;DER (*.der *.cer)")
         if not filename:
             return
         try:
@@ -284,7 +289,12 @@ class DiagnosticsDialog(QDialog):
             self._certificates = {}
             certificates = generate_certificates(Path(self._temporary.name),
                                                   self.hostname.text().strip())
-            Path(filename).write_bytes(certificates["ca"].read_bytes())
+            ca = certificates["ca"].read_bytes()
+            if chosen.startswith("DER") or Path(filename).suffix.lower() in (".der", ".cer"):
+                from cryptography import x509
+                from cryptography.hazmat.primitives import serialization
+                ca = x509.load_pem_x509_certificate(ca).public_bytes(serialization.Encoding.DER)
+            Path(filename).write_bytes(ca)
             self._certificates = certificates
             self._certificate_hostname = self.hostname.text().strip()
         except (OSError, ValueError) as exc:

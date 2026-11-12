@@ -54,7 +54,13 @@ class SettingsDialog(QDialog):
             (self.tls_cert, "Choose TLS certificate"),
             (self.tls_key, "Choose TLS private key"),
             (self.tls_ca, "Choose CA for client certificates"))]
+        self.create_certificates_button = QPushButton(tr("Create certificates…"))
+        self.create_certificates_button.setToolTip(
+            tr("Create a CA, server certificate and optional client certificate (PEM, CRT, DER, "
+               "PKCS#12) and enter them here"))
+        self.create_certificates_button.clicked.connect(self.create_certificates)
         self._tls_widgets = (self.tls_port, self.tls_cert, self.tls_key, self.tls_ca,
+                             self.create_certificates_button,
                              *(row.itemAt(1).widget() for row in tls_rows))
         self._set_tls_enabled(settings.tls_enabled)
         self.tls_enabled.toggled.connect(self._set_tls_enabled)
@@ -97,6 +103,7 @@ class SettingsDialog(QDialog):
         form.addRow(tr("TLS certificate:"), tls_rows[0])
         form.addRow(tr("TLS private key:"), tls_rows[1])
         form.addRow(tr("Client CA:"), tls_rows[2])
+        form.addRow("", self.create_certificates_button)
         form.addRow(tr("Retention:"), self.retention)
         form.addRow(tr("Storage budget:"), self.budget)
         form.addRow(tr("Data directory:"), dir_row)
@@ -165,6 +172,15 @@ class SettingsDialog(QDialog):
             tr("PEM files (*.pem *.crt *.cer *.key);;All files (*)"))
         if path:
             edit.setText(path)
+
+    def create_certificates(self) -> None:
+        from syslog_monitor.ui.certificate_dialog import CertificateDialog
+        dialog = CertificateDialog(self.tls_port.value(), self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        self.tls_cert.setText(str(dialog.paths["server_chain"]))
+        self.tls_key.setText(str(dialog.paths["server_key"]))
+        self.tls_ca.setText(str(dialog.paths["ca_crt"]) if "client_crt" in dialog.paths else "")
 
     def _set_tls_enabled(self, enabled: bool) -> None:
         for widget in self._tls_widgets:

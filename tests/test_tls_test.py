@@ -29,6 +29,15 @@ def test_setup_then_check_receives_a_message_over_tls(tmp_path, capsys, mtls):
     assert (config_dir / "settings.json.bak").exists()
     snippet = (config_dir / "tls-test" / "rsyslog-tls.conf").read_text()
     assert 'target="127.0.0.1"' in snippet and ("client.key" in snippet) == mtls
+    names = {path.name for path in (config_dir / "tls-test").iterdir()}
+    assert {"ca.crt", "ca.der", "ca.cer", "server.crt", "server.key", "server-chain.crt"} <= names
+    assert ({"client.crt", "client.key", "client.p12"} <= names) == mtls
+    from cryptography import x509
+    assert x509.load_der_x509_certificate((config_dir / "tls-test" / "ca.der").read_bytes())
+    if mtls:
+        from cryptography.hazmat.primitives.serialization import pkcs12
+        bundle = pkcs12.load_pkcs12((config_dir / "tls-test" / "client.p12").read_bytes(), None)
+        assert bundle.key is not None and len(bundle.additional_certs) == 1
 
     service = CaptureService(settings.resolved_data_dir(config_dir), settings,
                              tuning=WriterTuning(flush_interval_s=0.05))
@@ -56,3 +65,16 @@ def test_check_rejects_a_server_with_an_unknown_certificate(tmp_path, capsys):
     finally:
         service.shutdown()
     assert "server certificate rejected" in capsys.readouterr().out
+
+
+def test_create_certificates_supports_key_types(tmp_path):
+    import ssl
+    from syslog_monitor.tls_test import KEY_TYPES, create_certificates
+
+    for key_type in KEY_TYPES:
+        if key_type == "rsa-4096":
+            continue
+        paths = create_certificates(tmp_path / key_type, ["127.0.0.1"], mtls=True, days=5, key_type=key_type)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(paths["server_chain"], paths["server_key"])
+        context.load_verify_locations(paths["ca_crt"])

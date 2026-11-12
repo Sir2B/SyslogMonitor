@@ -272,3 +272,38 @@ def test_gui_applies_tcp_settings_and_keeps_udp_running_on_error(qtbot, tmp_path
         blocker.close()
         win.shutdown()
         service.shutdown()
+
+def test_create_certificates_button_fills_tls_fields(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from syslog_monitor.receiver import create_tls_context
+    from syslog_monitor.ui import certificate_dialog
+    from syslog_monitor.ui.settings_dialog import SettingsDialog
+
+    def run(self):
+        self.names.setText("syslog.example.test, 192.0.2.10")
+        self.folder.setText(str(tmp_path / "certs"))
+        self.mtls.setChecked(True)
+        self.key_type.setCurrentIndex(self.key_type.findData("ecdsa-p256"))
+        assert self.create() and self.stack.currentIndex() == 1
+        out = tmp_path / "device"
+        out.mkdir()
+        monkeypatch.setattr(certificate_dialog.QFileDialog, "getExistingDirectory", lambda *a: str(out))
+        monkeypatch.setattr(certificate_dialog.QDesktopServices, "openUrl", lambda url: True)
+        assert self.save_device_files() == out
+        assert {p.name for p in out.iterdir()} == {
+            "syslog-ca.crt", "syslog-device.crt", "syslog-device-key.pem", "syslog-device.p12"}
+        assert "syslog-device-key.pem" in self.mapping.text()
+        self.accept()
+        return QDialog.Accepted
+
+    monkeypatch.setattr(certificate_dialog.CertificateDialog, "exec", run)
+    dialog = SettingsDialog(Settings(tls_enabled=True))
+    qtbot.addWidget(dialog)
+    assert dialog.create_certificates_button.isEnabled()
+    dialog.create_certificates()
+    folder = tmp_path / "certs"
+    assert dialog.tls_cert.text() == str(folder / "server-chain.crt")
+    assert dialog.tls_key.text() == str(folder / "server.key")
+    assert dialog.tls_ca.text() == str(folder / "ca.crt")
+    assert {"ca.der", "client.p12", "rsyslog-tls.conf"} <= {p.name for p in folder.iterdir()}
+    create_tls_context(*dialog.result_settings().tls_files)

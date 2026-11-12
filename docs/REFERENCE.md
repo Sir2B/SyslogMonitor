@@ -107,7 +107,10 @@ python -m syslog_monitor.tls_test wait                       # message from a re
   `settings.json.bak`) and writes everything to `%LOCALAPPDATA%\SyslogMonitor\tls-test`,
   including `rsyslog-tls.conf` and `syslog-ng-tls.conf` for the sending device
   (copy `ca.pem`, and with mTLS `client.pem`/`client.key`, to `/etc/syslog-tls/`).
-  It also prints the firewall command for the TLS port.
+  It also prints the firewall command for the TLS port. Files: `ca.crt`/`ca.pem` and
+  `ca.der`/`ca.cer` (DER); `server.crt`, `server.key`, `server-chain.crt` and `server.pem`
+  (chain + key, used by Syslog Monitor); with mTLS `client.crt`/`client.pem`,
+  `client.key` and `client.p12` (PKCS#12 without password).
 - **check** connects like a device with full certificate and hostname validation,
   sends one octet-counted RFC 5425 message and confirms that it was stored.
 - **wait** prints a token, e.g. for `logger <token>` on the device, and waits until a
@@ -361,6 +364,16 @@ LF-delimited messages both work. Configure:
 - **Client CA (optional):** PEM file with one or more CA certificates. When set, every
   device must present a client certificate signed by one of these CAs (mutual TLS);
   otherwise, any client may connect.
+- **Create certificates…:** creates a test CA and a server certificate (optionally a
+  client certificate for mutual TLS) in a chosen folder and fills in the fields above.
+  The folder contains `ca.crt`/`ca.pem`/`ca.der`/`ca.cer`, `server.crt`,
+  `server-chain.crt`, `server.key`, `server.pem` and, with mutual TLS, `client.crt`,
+  `client.key`, `client.pem` and `client.p12`, plus example device configurations.
+  The assistant offers RSA 2048/3072/4096, ECDSA P-256/P-384 and Ed25519 keys (RSA 2048
+  is the most compatible). Afterwards **Save device files…** writes `syslog-ca.crt` and, with
+    mutual TLS, `syslog-device.crt`, `syslog-device-key.pem` and `syslog-device.p12` into a
+    folder, and a table shows which file goes into which field on the device.
+  The script accepts the same key types with `--key-type`.
 
 The files are checked when the settings are saved and loaded again whenever the TLS
 listener starts; after renewing a certificate, toggle **Receive** off and on. A TLS

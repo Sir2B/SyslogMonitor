@@ -268,6 +268,132 @@ GERMAN_TRANSLATIONS = {
         "MCP-Server für KI-Assistenten (nur lesend)",
     "MCP address:": "MCP-Adresse:",
     "Search": "Suche",
+    "Create certificates…": "Zertifikate erstellen…",
+    "Create a CA, server certificate and optional client certificate (PEM, CRT, DER, PKCS#12) and enter them here":
+        "CA, Serverzertifikat und optional Clientzertifikat (PEM, CRT, DER, PKCS#12) erstellen und hier eintragen",
+    "Create TLS certificates": "TLS-Zertifikate erstellen",
+    ' days':
+        ' Tage',
+    'Choose folder':
+        'Ordner wählen',
+    'Create':
+        'Erstellen',
+    'Open folder':
+        'Ordner öffnen',
+    'Recommended – works with practically every device.':
+        'Empfohlen – funktioniert mit praktisch jedem Gerät.',
+    'Stronger RSA – supported by most devices.':
+        'Stärkeres RSA – von den meisten Geräten unterstützt.',
+    'Strongest RSA – slower, very old devices may not support it.':
+        'Stärkstes RSA – langsamer, sehr alte Geräte unterstützen es evtl. nicht.',
+    'Modern and fast – needs a reasonably current device.':
+        'Modern und schnell – braucht ein halbwegs aktuelles Gerät.',
+    'Modern, stronger elliptic curve – needs a current device.':
+        'Moderne, stärkere elliptische Kurve – braucht ein aktuelles Gerät.',
+    'Newest type – many syslog devices do not support it yet.':
+        'Neueste Art – viele Syslog-Geräte unterstützen sie noch nicht.',
+    'Devices can send their logs encrypted (TLS). For this, Syslog Monitor needs a certificate, and the devices need to trust it. This assistant creates everything that is needed – no prior knowledge required.':
+        'Geräte können ihre Logs verschlüsselt (TLS) senden. Dafür braucht Syslog Monitor ein Zertifikat, und die Geräte müssen ihm vertrauen. Dieser Assistent erstellt alles Nötige – Vorwissen ist nicht erforderlich.',
+    'Only accept devices with their own certificate':
+        'Nur Geräte mit eigenem Zertifikat annehmen',
+    'Address of this PC:':
+        'Adresse dieses PCs:',
+    'Address of this PC':
+        'Adresse dieses PCs',
+    'Enter the names or IP addresses the devices use to reach this computer, separated by commas. The certificate is only valid for these addresses – if a device uses another address, it rejects the connection. The suggestions were detected automatically.':
+        'Namen oder IP-Adressen, über die die Geräte diesen Rechner erreichen, durch Kommas getrennt. Das Zertifikat gilt nur für diese Adressen – nutzt ein Gerät eine andere Adresse, lehnt es die Verbindung ab. Die Vorschläge wurden automatisch ermittelt.',
+    'Key type:':
+        'Schlüsselart:',
+    'Key type':
+        'Schlüsselart',
+    'The key type determines the encryption method. If unsure, keep RSA 2048: it works with practically every device. ECDSA is more modern and faster, Ed25519 is the newest type but not supported by many devices yet.':
+        'Die Schlüsselart bestimmt das Verschlüsselungsverfahren. Im Zweifel RSA 2048 lassen: Es funktioniert mit praktisch jedem Gerät. ECDSA ist moderner und schneller, Ed25519 ist am neuesten, wird aber von vielen Geräten noch nicht unterstützt.',
+    'Valid for:':
+        'Gültig für:',
+    'Validity':
+        'Gültigkeit',
+    'After this time the certificates expire and must be created again. Some devices (for example Apple devices) reject certificates valid for more than 825 days.':
+        'Nach dieser Zeit laufen die Zertifikate ab und müssen neu erstellt werden. Manche Geräte (z. B. von Apple) lehnen Zertifikate ab, die länger als 825 Tage gültig sind.',
+    'Device certificate':
+        'Gerätezertifikat',
+    'Optional, for more security: Syslog Monitor then only accepts devices that present a certificate created here (mutual TLS). Each device then needs the device certificate in addition to the CA certificate. Leave it off if unsure.':
+        'Optional, für mehr Sicherheit: Syslog Monitor nimmt dann nur Geräte an, die ein hier erstelltes Zertifikat vorweisen (gegenseitiges TLS). Jedes Gerät braucht dann zusätzlich zum CA-Zertifikat das Gerätezertifikat. Im Zweifel ausgeschaltet lassen.',
+    'Save in:':
+        'Speichern in:',
+    'A new certificate authority is created each time, so devices must trust the new CA certificate afterwards. Files with the same names in the folder are replaced.':
+        'Es wird jedes Mal eine neue Zertifizierungsstelle (CA) erstellt; Geräte müssen danach dem neuen CA-Zertifikat vertrauen. Gleichnamige Dateien im Ordner werden ersetzt.',
+    'For the devices (clients)':
+        'Für die Geräte (Clients)',
+    'Save CA certificate…':
+        'CA-Zertifikat speichern…',
+    'CA certificate':
+        'CA-Zertifikat',
+    'Save CA certificate':
+        'CA-Zertifikat speichern',
+    "Every device that sends logs needs this file. With it, the device can check that it really talks to this Syslog Monitor. Import it on the device as 'CA certificate', 'trusted certificate' or 'root certificate'. It contains no secret and may be shared freely. Most devices accept .crt or .pem; Windows and some devices prefer .cer/.der.":
+        'Jedes Gerät, das Logs sendet, braucht diese Datei. Damit prüft das Gerät, dass es wirklich mit diesem Syslog Monitor spricht. Auf dem Gerät als „CA-Zertifikat“, „vertrauenswürdiges Zertifikat“ oder „Stammzertifikat“ importieren. Sie enthält nichts Geheimes und darf frei weitergegeben werden. Die meisten Geräte akzeptieren .crt oder .pem; Windows und manche Geräte bevorzugen .cer/.der.',
+    'Save device certificate…':
+        'Gerätezertifikat speichern…',
+    'Save device certificate':
+        'Gerätezertifikat speichern',
+    "Only needed because 'Only accept devices with their own certificate' is enabled. The device proves its identity with it. It contains a private key – keep it secret and only copy it to your devices. A .p12 file contains certificate and key in one file (usual for web interfaces); the .pem file contains both as text (usual for Linux/rsyslog).":
+        'Nur nötig, weil „Nur Geräte mit eigenem Zertifikat annehmen“ eingeschaltet ist. Damit weist sich das Gerät aus. Enthält einen privaten Schlüssel – geheim halten und nur auf die eigenen Geräte kopieren. Eine .p12-Datei enthält Zertifikat und Schlüssel in einer Datei (üblich für Weboberflächen); die .pem-Datei enthält beides als Text (üblich für Linux/rsyslog).',
+    'For Syslog Monitor (server)':
+        'Für Syslog Monitor (Server)',
+    'Already entered in the settings – nothing else to do.':
+        'Bereits in den Einstellungen eingetragen – nichts weiter zu tun.',
+    'Save server certificate…':
+        'Serverzertifikat speichern…',
+    'Server certificate':
+        'Serverzertifikat',
+    'Save server certificate':
+        'Serverzertifikat speichern',
+    'Syslog Monitor uses this certificate to identify itself to the devices. It is only needed if you want to run another syslog server with it. It contains a private key – keep it secret.':
+        'Mit diesem Zertifikat weist sich Syslog Monitor gegenüber den Geräten aus. Es wird nur gebraucht, wenn du damit einen anderen Syslog-Server betreiben willst. Enthält einen privaten Schlüssel – geheim halten.',
+    'Enter at least one address and a folder.':
+        'Mindestens eine Adresse und einen Ordner angeben.',
+    'The certificates were created. Now give the devices the files they need:':
+        'Die Zertifikate wurden erstellt. Jetzt den Geräten die benötigten Dateien geben:',
+    'Done':
+        'Fertig',
+    'Certificate and key in one file':
+        'Zertifikat und Schlüssel in einer Datei',
+    'Certificate and key as text':
+        'Zertifikat und Schlüssel als Text',
+    'Certificate only':
+        'Nur Zertifikat',
+    'Key only':
+        'Nur Schlüssel',
+    'Certificate chain and key as text':
+        'Zertifikatskette und Schlüssel als Text',
+    'Certificate chain only':
+        'Nur Zertifikatskette',
+    'Save device files…':
+        'Gerätedateien speichern…',
+    'Save device files':
+        'Gerätedateien speichern',
+    'Device files':
+        'Gerätedateien',
+    'Saves all files a device may need into one folder. The CA certificate contains no secret; the device key is secret – only copy it to your own devices. Which file goes into which field on the device is shown in the table below.':
+        'Speichert alle Dateien, die ein Gerät brauchen kann, in einen Ordner. Das CA-Zertifikat enthält nichts Geheimes; der Geräteschlüssel ist geheim – nur auf die eigenen Geräte kopieren. Welche Datei in welches Feld auf dem Gerät gehört, zeigt die Tabelle darunter.',
+    'CA certificate, CA crt, trusted / root certificate':
+        'CA-Zertifikat, CA crt, vertrauenswürdiges / Stammzertifikat',
+    'Certificate, client / device certificate (.crt)':
+        'Zertifikat, Client- / Gerätezertifikat (.crt)',
+    'Private key, key (.pem / .key)':
+        'Privater Schlüssel, Key (.pem / .key)',
+    'Only one file (PKCS#12, .p12 / .pfx)':
+        'Nur eine Datei (PKCS#12, .p12 / .pfx)',
+    'Certificate and key':
+        'Zertifikat und Schlüssel',
+    'not needed – the device only checks the server':
+        'nicht nötig – das Gerät prüft nur den Server',
+    'The device asks for … → use:':
+        'Das Gerät fragt nach … → nimm:',
+    'The file extension does not matter: .pem, .crt and .key are all text files in PEM format.':
+        'Die Dateiendung ist egal: .pem, .crt und .key sind alles Textdateien im PEM-Format.',
+    'Only for this check: creates a temporary CA (valid 7 days) and deliberately broken server certificates to test whether the device rejects them. Only the CA is imported on the device. For real TLS reception use Settings → TLS → Create certificates… instead.':
+        'Nur für diese Prüfung: erstellt eine temporäre CA (7 Tage gültig) und absichtlich fehlerhafte Serverzertifikate, um zu testen, ob das Gerät sie ablehnt. Auf dem Gerät wird nur die CA importiert. Für den echten TLS-Empfang stattdessen Einstellungen → TLS → Zertifikate erstellen… verwenden.',
     "Filter": "Filter",
     "Highlights": "Highlights",
     "Jumps between matching messages; nothing is hidden or colored.":
