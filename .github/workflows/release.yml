@@ -84,7 +84,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Could not update pip in the test environment."
           }
-          & $testPython -m pip install --quiet "$env:GITHUB_WORKSPACE[test]"
+          & $testPython -m pip install --quiet "$env:GITHUB_WORKSPACE[test,screenshots]"
           if ($LASTEXITCODE -ne 0) {
             throw "Could not install test dependencies."
           }
