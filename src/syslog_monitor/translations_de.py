@@ -394,6 +394,18 @@ GERMAN_TRANSLATIONS = {
         'Die Dateiendung ist egal: .pem, .crt und .key sind alles Textdateien im PEM-Format.',
     'Only for this check: creates a temporary CA (valid 7 days) and deliberately broken server certificates to test whether the device rejects them. Only the CA is imported on the device. For real TLS reception use Settings → TLS → Create certificates… instead.':
         'Nur für diese Prüfung: erstellt eine temporäre CA (7 Tage gültig) und absichtlich fehlerhafte Serverzertifikate, um zu testen, ob das Gerät sie ablehnt. Auf dem Gerät wird nur die CA importiert. Für den echten TLS-Empfang stattdessen Einstellungen → TLS → Zertifikate erstellen… verwenden.',
+    "(none)": "(leer)",
+    "Quick filter by sender IP address": "Schnellfilter nach Absender-IP-Adresse",
+    "Quick filter by host name from the message": "Schnellfilter nach Hostname aus der Meldung",
+    "Quick filter by application (tag) from the message": "Schnellfilter nach Anwendung (Tag) aus der Meldung",
+    "Check one or more values; nothing checked shows all.": "Einen oder mehrere Werte anhaken; ohne Haken wird alles angezeigt.",
+    "All (no restriction)": "Alle (keine Einschränkung)",
+    "Loading…": "Wird geladen…",
+    "No values": "Keine Werte",
+    "{name}: {count} selected": "{name}: {count} ausgewählt",
+    "Only this sender": "Nur dieser Absender",
+    "Only this host": "Nur dieser Host",
+    "Only this application": "Nur diese Anwendung",
     "Filter": "Filter",
     "Highlights": "Highlights",
     "Jumps between matching messages; nothing is hidden or colored.":

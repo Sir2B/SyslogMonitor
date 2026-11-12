@@ -201,6 +201,9 @@ class FilterRule:
         return self.operator not in ("words", "not_words")
 
 
+QUICK_FIELDS = ("source_ip", "hostname", "app_name")
+
+
 @dataclass(frozen=True, slots=True)
 class EventFilter:
     start_ms: int | None = None  # inclusive
@@ -214,10 +217,17 @@ class EventFilter:
     text_options: MatchOptions = PLAIN_MATCH  # substring mode only
     rules: tuple[FilterRule, ...] = ()
     rules_match: str = "all"
+    # Quick filters: (column, allowed exact values); "" stands for a missing value.
+    quick: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     def __post_init__(self) -> None:
         if self.rules_match not in ("all", "any"):
             raise ValueError(f"Invalid filter combination: {self.rules_match}")
+        if any(column not in QUICK_FIELDS for column, _values in self.quick):
+            raise ValueError("Invalid quick filter field.")
+
+    def without_quick(self, column: str) -> "EventFilter":
+        return replace(self, quick=tuple(item for item in self.quick if item[0] != column))
 
     def with_time(self, start_ms: int | None, end_ms: int | None) -> "EventFilter":
         return replace(self, start_ms=start_ms, end_ms=end_ms)
@@ -307,6 +317,15 @@ def build_where(f: EventFilter) -> tuple[str, list]:
     if f.facility is not None:
         clauses.append("facility = ?")
         params.append(f.facility)
+    for column, values in f.quick:
+        known = sorted({value for value in values if value})
+        parts = []
+        if known:
+            parts.append(f"{column} IN ({', '.join('?' for _ in known)})")
+            params.extend(known)
+        if "" in values:
+            parts.append(f"({column} IS NULL OR {column} = '')")
+        clauses.append(f"({' OR '.join(parts)})" if parts else "0")
     if f.sender.strip():
         pattern = like_pattern(f.sender.strip())
         clauses.append("(source_ip LIKE ? ESCAPE '\\' OR hostname LIKE ? ESCAPE '\\')")
@@ -632,6 +651,16 @@ class QueryRunner:
         if mode == MODE_SIMILAR:
             groups = cluster_similar(groups, similarity, lambda: self._interrupts != interrupts)
         return FrequencyReport(mode, total, groups, len(rows) > limit, limit, similarity)
+
+    def field_values(self, column: str, f: EventFilter, limit: int = 300) -> list[tuple[str, int]]:
+        """Distinct values of ``column`` within ``f`` (ignoring its own quick filter), most frequent first."""
+        if column not in QUICK_FIELDS:
+            raise ValueError(f"Unknown quick filter field: {column}")
+        where, params = build_where(f.without_quick(column))
+        rows = self._conn.execute(
+            f"SELECT COALESCE({column}, '') AS value, COUNT(*) FROM events WHERE {where} "
+            "GROUP BY value ORDER BY 2 DESC, value LIMIT ?", params + [limit])
+        return [(value, count) for value, count in rows]
 
     def senders(self, since_ms: int, limit: int) -> list[SenderSummary]:
         """Sending devices since ``since_ms``, most recently active first."""

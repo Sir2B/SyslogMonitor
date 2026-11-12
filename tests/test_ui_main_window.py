@@ -382,3 +382,19 @@ def test_import_page_adds_messages_from_a_file(qtbot, window, tmp_path):
     dialog.start_import()
     qtbot.waitUntil(lambda: dialog.worker is None, timeout=10_000)
     assert "1" in dialog.status.text() and "messages.log" in dialog.status.text()
+
+
+def test_quick_filter_buttons_and_context_action(window, qtbot):
+    bar = window.filter_bar
+    with qtbot.waitSignal(bar.changed):
+        bar.set_quick("source_ip", {"10.1.1.1"})
+    assert bar.current_filter().quick == (("source_ip", ("10.1.1.1",)),)
+    assert "10.1.1.1" in bar.quick_buttons["source_ip"].text()
+    state = bar.state()
+    bar.reset()
+    assert bar.current_filter().quick == ()
+    bar.restore_state(state)
+    assert bar.quick_buttons["source_ip"].selected() == {"10.1.1.1"}
+    bar.set_quick_values("hostname", [("a", 3), ("", 1)])
+    texts = [a.text() for a in bar.quick_buttons["hostname"].menu().actions() if a.isCheckable()]
+    assert len(texts) == 2

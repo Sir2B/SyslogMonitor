@@ -14,9 +14,10 @@ from PySide6.QtWidgets import (
 
 from syslog_monitor.events import FACILITY_NAMES, SEVERITY_NAMES
 from syslog_monitor.i18n import tr
-from syslog_monitor.query import TEXT_MODE_WORDS, EventFilter, FilterRule
+from syslog_monitor.query import QUICK_FIELDS, TEXT_MODE_WORDS, EventFilter, FilterRule
 from syslog_monitor.ui.flow_layout import FlowLayout
 from syslog_monitor.ui.match_options import MatchOptionsBar, options_label
+from syslog_monitor.ui.quick_filter import QuickFilterButton
 
 log = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ class RuleRow(QWidget):
 
 class FilterBar(QWidget):
     changed = Signal()
+    values_requested = Signal(str)  # column whose quick filter values should be loaded
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -156,6 +158,13 @@ class FilterBar(QWidget):
         for code, name in enumerate(FACILITY_NAMES):
             self.facility.addItem(f"{name} ({code})", code)
 
+        self.quick_buttons: dict[str, QuickFilterButton] = {}
+        for column in QUICK_FIELDS:
+            button = QuickFilterButton(column, self)
+            button.changed.connect(self.changed)
+            button.values_requested.connect(self.values_requested)
+            self.quick_buttons[column] = button
+
         self.reset_button = QPushButton(tr("Reset filters"))
 
         outer = QVBoxLayout(self)
@@ -169,7 +178,7 @@ class FilterBar(QWidget):
         self.rules_match.addItem(tr("All rules (AND)"), "all")
         self.rules_match.addItem(tr("Any rule (OR)"), "any")
         dropdown_height = max(self.facility.sizeHint().height(), self.rules_match.sizeHint().height())
-        for widget in (self.severity_button, self.facility, self.rules_match):
+        for widget in (self.severity_button, self.facility, self.rules_match, *self.quick_buttons.values()):
             widget.setFixedHeight(dropdown_height)
         self._empty_editor = QWidget()
         self._editors = QStackedWidget()
@@ -226,7 +235,7 @@ class FilterBar(QWidget):
         while self._flow_layout.count():
             self._flow_layout.takeAt(0)
         for widget in (self.add_rule_button, *self.rule_rows, self.rules_match,
-                       self.severity_button, self.facility, self.reset_button):
+                       self.severity_button, *self.quick_buttons.values(), self.facility, self.reset_button):
             self._flow_layout.addWidget(widget)
 
     def _build_severity_menu(self) -> QMenu:
@@ -280,7 +289,15 @@ class FilterBar(QWidget):
             facility=self.facility.currentData(),
             rules=tuple(row.rule() for row in self.rule_rows if row.value.text().strip()),
             rules_match=self.rules_match.currentData(),
+            quick=tuple((column, tuple(sorted(button.selected())))
+                        for column, button in self.quick_buttons.items() if button.selected()),
         )
+
+    def set_quick(self, column: str, values: set[str]) -> None:
+        self.quick_buttons[column].set_selected(values)
+
+    def set_quick_values(self, column: str, values: list[tuple[str, int]]) -> None:
+        self.quick_buttons[column].set_values(values)
 
     def reset(self) -> None:
         self.restore_state({})
@@ -292,6 +309,8 @@ class FilterBar(QWidget):
             "facility": self.facility.currentData(),
             "rules": [asdict(row.rule()) for row in self.rule_rows],
             "rules_match": self.rules_match.currentData(),
+            "quick": {column: sorted(button.selected())
+                      for column, button in self.quick_buttons.items() if button.selected()},
         }
 
     def restore_state(self, state: dict) -> None:
@@ -325,6 +344,10 @@ class FilterBar(QWidget):
                 action.setChecked(sev in values)
                 action.blockSignals(False)
             self._update_severity_label()
+            quick = state.get("quick", {})
+            for column, button in self.quick_buttons.items():
+                values = quick.get(column, []) if isinstance(quick, dict) else []
+                button.set_selected({v for v in values if isinstance(v, str)}, emit=False)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)

@@ -135,6 +135,7 @@ class MainWindow(QMainWindow):
         self.queries = QueryClient(service.db_path, self)
         self.queries.error.connect(self._on_query_error)
         self.statistics_queries = QueryClient(service.db_path, self)
+        self.value_queries = QueryClient(service.db_path, self)
 
         self._build_ui()
         self.update_checker = UpdateChecker(self)
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
 
         self.filter_bar = FilterBar()
         self.filter_bar.changed.connect(self.refresh_all)
+        self.filter_bar.values_requested.connect(self._load_quick_values)
         self.search_text = QLineEdit(placeholderText=tr("Find matches while keeping context…"),
                                      clearButtonEnabled=True)
         self.search_text.setToolTip(
@@ -337,7 +339,15 @@ class MainWindow(QMainWindow):
                                          shortcut=QKeySequence.SelectAll)
         self.select_all_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self.select_all_action.triggered.connect(self.table.selectAll)
-        self.table.addActions([self.copy_action, self.select_all_action])
+        self.quick_actions: dict[str, QAction] = {}
+        for column, text in (("source_ip", tr("Only this sender")), ("hostname", tr("Only this host")),
+                             ("app_name", tr("Only this application"))):
+            action = QAction(text, self.table)
+            action.triggered.connect(lambda _=False, c=column: self._quick_filter_current(c))
+            self.quick_actions[column] = action
+        separator = QAction(self.table)
+        separator.setSeparator(True)
+        self.table.addActions([self.copy_action, self.select_all_action, separator, *self.quick_actions.values()])
         self.table.setContextMenuPolicy(Qt.ActionsContextMenu)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerItem)
         self.table.setWordWrap(False)
@@ -591,6 +601,19 @@ class MainWindow(QMainWindow):
         if self.range_to_check.isChecked():
             end = (self.range_to.dateTime().toMSecsSinceEpoch() // 1000 + 1) * 1000
         return start, end
+
+    def _load_quick_values(self, column: str) -> None:
+        f = self.list_filter()
+        self.value_queries.submit(lambda runner: runner.field_values(column, f),
+                                  lambda values: self.filter_bar.set_quick_values(column, values))
+
+    def _quick_filter_current(self, column: str) -> None:
+        index = self.table.currentIndex()
+        if not index.isValid():
+            return
+        row = self.model.row_at(index.row())
+        if row is not None:
+            self.filter_bar.set_quick(column, {getattr(row, column) or ""})
 
     def list_filter(self) -> EventFilter:
         base = self.filter_bar.current_filter()
@@ -1290,6 +1313,7 @@ class MainWindow(QMainWindow):
         self.log_view.shutdown()
         self.inspector_controller.shutdown()
         self.queries.shutdown()
+        self.value_queries.shutdown()
         if self.tray:
             self.tray.hide()
 

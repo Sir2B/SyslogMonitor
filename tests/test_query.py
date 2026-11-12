@@ -626,3 +626,20 @@ def test_filtered_time_bounds(store):
     assert q.time_bounds(EventFilter(start_ms=BASE_MS + 150, end_ms=BASE_MS + 250)) == (
         BASE_MS + 200, BASE_MS + 200)
     assert q.time_bounds(EventFilter(text="missing")) is None
+
+def test_quick_filter_values_and_missing(store):
+    q = fill(store, [make_event(0, source_ip="10.0.0.1", hostname="a"),
+                     make_event(1, source_ip="10.0.0.1", hostname=None),
+                     make_event(2, source_ip="10.0.0.2", hostname="b")])
+    only_ip = EventFilter(quick=(("source_ip", ("10.0.0.1",)),))
+    assert len(q.fetch_older(only_ip, None, 20)) == 2
+    no_host = EventFilter(quick=(("hostname", ("", "b")),))
+    assert {e.hostname for e in q.fetch_older(no_host, None, 20)} == {None, "b"}
+    combined = EventFilter(quick=(("source_ip", ("10.0.0.1",)), ("hostname", ("a",))))
+    assert len(q.fetch_older(combined, None, 20)) == 1
+    # Values of a column ignore that column's own selection so others stay pickable.
+    assert dict(q.field_values("source_ip", only_ip)) == {"10.0.0.1": 2, "10.0.0.2": 1}
+    assert dict(q.field_values("hostname", only_ip)) == {"a": 1, "": 1}
+    with pytest.raises(ValueError):
+        EventFilter(quick=(("message", ("x",)),))
+    q.close()
