@@ -23,8 +23,8 @@ $packages = @(
 $screenshots = @($Screenshot)
 $gallery = @()
 if ($ScreenshotGalleryDir) {
-    $gallery = @(Get-ChildItem -LiteralPath $ScreenshotGalleryDir -Filter "screenshot-*.png" -File |
-        ForEach-Object { $_.FullName })
+    $gallery = @(Get-ChildItem -LiteralPath $ScreenshotGalleryDir -File |
+        Where-Object { $_.Name -match '^screenshot-.+\.(png|gif)$' } | ForEach-Object { $_.FullName })
     if ($gallery.Count -eq 0) {
         throw "No gallery screenshots found in $ScreenshotGalleryDir."
     }

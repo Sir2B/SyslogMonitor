@@ -8,18 +8,20 @@ the ``offscreen`` plugin has no fonts and renders every glyph as a box.
 from __future__ import annotations
 
 import argparse
+import io
 import random
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from PySide6.QtCore import QDeadlineTimer, QLocale, QPoint, QSettings  # noqa: E402
-from PySide6.QtGui import QPainter  # noqa: E402
+from PySide6.QtCore import QBuffer, QDeadlineTimer, QEvent, QIODevice, QLocale, QPoint, QPointF, QRectF, QSettings, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from shiboken6 import delete  # noqa: E402
 
@@ -27,7 +29,7 @@ from syslog_monitor.config import Settings  # noqa: E402
 from syslog_monitor.firewall import FirewallCheck, Level  # noqa: E402
 from syslog_monitor.i18n import set_language  # noqa: E402
 from syslog_monitor.parser import parse_datagram  # noqa: E402
-from syslog_monitor.query import HighlightRule  # noqa: E402
+from syslog_monitor.query import FilterRule, HighlightRule  # noqa: E402
 from syslog_monitor.service import CaptureService  # noqa: E402
 from syslog_monitor.storage import EventStore  # noqa: E402
 from syslog_monitor.ui.main_window import MainWindow  # noqa: E402
@@ -157,12 +159,11 @@ def _send(port: int, payloads: list[bytes]) -> None:
             sock.sendto(payload, ("127.0.0.1", port))
 
 
-def render(output: Path, width: int = 1400, height: int = 860, *,
-           theme: str = "system", view: str = "main") -> Path:
+@contextmanager
+def _demo_window(width: int, height: int, theme: str):
+    """Main window on a temporary store filled with the demo data, ready for capturing."""
     if theme not in ("system", "light", "dark"):
         raise ValueError(f"Unknown theme: {theme}")
-    if view not in VIEWS:
-        raise ValueError(f"Unknown view: {view}")
     app = QApplication.instance() or QApplication(sys.argv[:1])
     set_language("en")
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
@@ -176,7 +177,6 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
             service, settings_path=tmp_dir / "settings.json",
             ui_state=QSettings(str(tmp_dir / "ui.ini"), QSettings.IniFormat), tray_enabled=False,
             firewall_checker=lambda *_args: FirewallCheck(Level.OK, "Firewall allows syslog"))
-        overlay = None
         try:
             for row in list(window.highlights.rule_rows):
                 window.highlights.remove_rule(row)
@@ -189,6 +189,29 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
             window.table.selectRow(3)  # the warning below the highlighted message fills the detail pane
             _wait(app, lambda: bool(window.details.toPlainText()))
             _wait(app, lambda: bool(window.inspector.graph.series))
+            yield app, window, service
+        finally:
+            window.close()
+            window.shutdown()
+            service.shutdown()
+            delete(window)
+
+
+def _settle(app: QApplication, ms: int = 400) -> None:
+    deadline = time.monotonic() + ms / 1000
+    while time.monotonic() < deadline:
+        app.processEvents()
+        app.sendPostedEvents(None, QEvent.DeferredDelete)  # removed filter chips must not linger
+        time.sleep(0.02)
+
+
+def render(output: Path, width: int = 1400, height: int = 860, *,
+           theme: str = "system", view: str = "main") -> Path:
+    if view not in VIEWS:
+        raise ValueError(f"Unknown view: {view}")
+    with _demo_window(width, height, theme) as (app, window, service):
+        overlay = None
+        try:
             if view == "highlights":
                 window.highlights.edit_rule(window.highlights.rule_rows[0])
             elif view == "columns":
@@ -231,9 +254,7 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
                 window.inspector.set_similarity(0.75)
                 _wait(app, lambda: window.inspector._stats is not None
                       and window.inspector._stats.similarity == 0.75 and window.inspector.common.text())
-            for _ in range(20):
-                app.processEvents()
-                time.sleep(0.02)
+            _settle(app, 400)
             output.parent.mkdir(parents=True, exist_ok=True)
             image = window.grab()
             if overlay is not None:
@@ -248,10 +269,107 @@ def render(output: Path, width: int = 1400, height: int = 860, *,
         finally:
             if overlay is not None:
                 overlay.close()
-            window.close()
-            window.shutdown()
-            service.shutdown()
-            delete(window)
+    return output
+
+
+def _caption(image: QImage, text: str) -> QImage:
+    """Draws a centered caption near the bottom so viewers know what the scene shows."""
+    painter = QPainter(image)
+    try:
+        painter.setRenderHint(QPainter.Antialiasing)
+        font = QFont(painter.font())
+        font.setPixelSize(max(18, image.height() // 34))
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        box = QRectF(0, 0, metrics.horizontalAdvance(text) + 2 * metrics.height(), metrics.height() * 1.9)
+        box.moveCenter(QPointF(image.width() / 2, image.height() * 0.62))  # over the table, not the details
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(20, 24, 32, 215))
+        painter.drawRoundedRect(box, box.height() / 2, box.height() / 2)
+        painter.setPen(QColor("white"))
+        painter.drawText(box, Qt.AlignCenter, text)
+    finally:
+        painter.end()
+    return image
+
+
+def _to_pil(image: QImage):
+    from PIL import Image
+
+    buffer = QBuffer()
+    buffer.open(QIODevice.WriteOnly)
+    image.save(buffer, "PNG")
+    return Image.open(io.BytesIO(bytes(buffer.data()))).convert("RGB")
+
+
+def render_demo(output: Path, width: int = 1400, height: int = 860, *, theme: str = "light") -> Path:
+    """Animated tour through live view, filter, search, similar messages and analysis as a GIF."""
+    from PIL import Image
+
+    frames: list[tuple[QImage, int]] = []
+    with _demo_window(width, height, theme) as (app, window, service):
+        def snap(duration_ms: int, caption: str) -> None:
+            _settle(app, 250)
+            frames.append((_caption(window.grab().toImage(), caption), duration_ms))
+
+        live = "Live view: messages arrive over UDP, TCP or TLS"
+        snap(1600, live)
+        rng = random.Random(11)
+        for batch in range(4):
+            rows = window.model.rowCount()
+            now = time.time_ns() // 1_000_000
+            payloads = [_datagram(DEVICES[(batch + i) % len(DEVICES)], sev, msg, now, rng) for i, (sev, msg) in
+                        enumerate(((6, f"cycle time {8 + batch} ms, jitter {70 + 9 * batch} us"),
+                                   (4, f"rtsp client 192.168.10.{60 + batch} reconnected"),
+                                   (6, f"temperature={23.5 + batch / 3:.1f}C humidity={40 + batch}%")))]
+            _send(service.bound_port, payloads)
+            _wait(app, lambda: window.model.rowCount() >= rows + len(payloads))
+            snap(650, live)
+
+        window.filter_bar.set_severities({0, 1, 2, 3, 4})
+        _settle(app, 700)
+        snap(1300, "Filter: show only warnings and errors")
+        row = window.filter_bar.add_rule(FilterRule("message", "contains", "link"))
+        _settle(app, 700)
+        window.filter_bar.edit_rule(row)
+        snap(1900, "Combine filter rules – the minimap follows the filter")
+        window.filter_bar.reset()
+        _settle(app, 700)
+
+        for count in range(1, len("watchdog") + 1):
+            window.search_text.setText("watchdog"[:count])
+            _settle(app, 30)
+            frames.append((_caption(window.grab().toImage(), "Search jumps to matches and keeps the context"),
+                           120))
+        window.find_text()
+        snap(2000, "Search jumps to matches and keeps the context")
+
+        from syslog_monitor.ui.message_inspector import MODE_SIMILAR as INSPECT_SIMILAR
+
+        window.table.selectRow(1)
+        _wait(app, lambda: bool(window.details.toPlainText()))
+        window.inspector.set_mode(INSPECT_SIMILAR)
+        window.inspector.set_similarity(0.75)
+        _wait(app, lambda: window.inspector._stats is not None
+              and window.inspector._stats.similarity == 0.75 and window.inspector.common.text())
+        snap(2600, "Details: how often similar messages occurred")
+
+        from syslog_monitor.analysis import MODE_SIMILAR
+
+        window.show_page("analysis")
+        page = window._analysis_page
+        page.similarity.setValue(60)
+        page.mode.setCurrentIndex(page.mode.findData(MODE_SIMILAR))
+        page.analyze()
+        _wait(app, lambda: page.report is not None and page.report.mode == MODE_SIMILAR
+              and page.report.similarity == 0.6 and not page.busy)
+        snap(2800, "Analysis: the most frequent messages at a glance")
+
+    images = [_to_pil(image).quantize(colors=256, dither=Image.Dither.NONE) for image, _ in frames]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    images[0].save(output, save_all=True, append_images=images[1:], loop=0,
+                   duration=[duration for _, duration in frames], disposal=1)
     return output
 
 
@@ -263,13 +381,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--theme", choices=("system", "light", "dark"), default="system")
     parser.add_argument("--view", choices=VIEWS, default="main")
     parser.add_argument("--gallery-dir", type=Path,
-                        help="Also render the README gallery views into this directory")
+                        help="Also render the README gallery views and the animated demo into this directory")
+    parser.add_argument("--demo", type=Path, help="Only render the animated demo GIF to this path")
     args = parser.parse_args(argv)
+    if args.demo is not None:
+        print(render_demo(args.demo, args.width, args.height,
+                          theme="light" if args.theme == "system" else args.theme))
+        return 0
     print(render(args.output, args.width, args.height, theme=args.theme, view=args.view))
     if args.gallery_dir is not None:
         for name, theme, view in GALLERY:
             print(render(args.gallery_dir / f"screenshot-{name}.png", args.width, args.height,
                          theme=theme, view=view))
+        print(render_demo(args.gallery_dir / "screenshot-demo.gif", args.width, args.height))
     return 0
 
 

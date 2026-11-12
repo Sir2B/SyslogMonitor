@@ -130,6 +130,10 @@ jobs:
             Copy-Item -LiteralPath $fallback -Destination $screenshotScript
           }
           $python = Join-Path $env:RUNNER_TEMP "SyslogMonitor-build-3.14\venv\Scripts\python.exe"
+          & $python -m pip install --quiet "Pillow>=10"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not install Pillow for the animated demo."
+          }
           $arguments = @($screenshotScript, "--output", (Join-Path $env:RUNNER_TEMP "screenshot.png"))
           if (Select-String -LiteralPath $screenshotScript -SimpleMatch "--gallery-dir" -Quiet) {
             $gallery = Join-Path $env:RUNNER_TEMP "screenshots"

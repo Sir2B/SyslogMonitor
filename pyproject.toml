@@ -18,6 +18,7 @@ Issues = "https://github.com/Sir2B/SyslogMonitor/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-qt>=4.4"]
+screenshots = ["Pillow>=10"]
 
 [project.gui-scripts]
 syslog-monitor = "syslog_monitor.app:main"

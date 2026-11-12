@@ -10,6 +10,8 @@ A simple Windows GUI tool for receiving and browsing syslog messages.
 Keep an eye on routers, switches, servers, and other devices in one place.
 Search logs, spot errors on a timeline, and highlight messages that matter.
 
+<p align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-demo.gif"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-demo.gif" alt="Tour: live view, filters, search, similar messages and analysis" width="880"></a></p>
+
 <table>
   <tr>
     <td align="center"><a href="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-light.png"><img src="https://raw.githubusercontent.com/Sir2B/SyslogMonitor/screenshots/screenshot-light.png" alt="Syslog Monitor main window" width="280"></a><br><sub>Logs</sub></td>
