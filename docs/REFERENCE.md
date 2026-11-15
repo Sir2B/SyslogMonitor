@@ -664,7 +664,7 @@ written by version 1 of the archive (`.jsonl.gz`) remain readable and are never 
   exceeds its budget, the oldest whole file is deleted.
 - **Warning:** at 90% of the archive budget the archive size in the status bar turns amber
   with ⏳; its tooltip shows up to when archived messages will be deleted soon.
-- **Viewing:** **Source** above the minimap lists live data and every archive file.
+- **Viewing:** the **Live data** selector next to the time range lists every archive file.
   A selected file is unpacked into a temporary database, so filters, search, minimap and
   export work as usual; the time range switches to “All” and returns when you go back to
   live data. Receiving, storage and highlight notifications continue on the live data.

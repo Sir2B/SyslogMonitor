@@ -450,7 +450,6 @@ GERMAN_TRANSLATIONS = {
     "The archive is almost full. Archived messages up to {time} will be deleted soon.\nIncrease the archive budget in Settings or export them to keep them.":
         "Das Archiv ist fast voll. Archivierte Nachrichten bis {time} werden bald gelöscht.\nZum Behalten das Archivlimit in den Einstellungen erhöhen oder die Nachrichten exportieren.",
     "off": "aus",
-    "Source:": "Quelle:",
     "Live data": "Live-Daten",
     "Archive {start} – {end}": "Archiv {start} – {end}",
     "Loading {label}…": "Lade {label}…",
@@ -606,7 +605,6 @@ GERMAN_TRANSLATIONS = {
     "Filter rules": "Filterregeln",
     "Highlight color": "Markierungsfarbe",
     "Host:": "Host:",
-    "Source:": "Quelle:",
     "Severity:": "Schweregrad:",
     "Facility:": "Facility:",
     "Parser notes:": "Parserhinweise:",

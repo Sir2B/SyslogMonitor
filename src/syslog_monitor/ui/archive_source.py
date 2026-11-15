@@ -12,7 +12,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import QComboBox, QProgressDialog, QWidget
 
 from syslog_monitor.archive import ArchiveFile, archive_dir, load_into_database, read_index
@@ -110,6 +110,10 @@ class SourceSelector(_RefreshingCombo):
     def showing_archive(self) -> bool:
         return bool(self._active)
 
+    def minimumSizeHint(self) -> QSize:
+        # May shrink (eliding its text) so narrow windows keep the time controls usable.
+        return QSize(48, super().minimumSizeHint().height())
+
     def refresh(self) -> None:
         files = read_index(self._archive_dir)
         self.blockSignals(True)
@@ -121,6 +125,7 @@ class SourceSelector(_RefreshingCombo):
             self.setItemData(self.count() - 1, entry, role=0x0101)  # Qt.UserRole + 1
         index = self.findData(self._active)
         self.setCurrentIndex(max(0, index))
+        self.view().setMinimumWidth(self.view().sizeHintForColumn(0) + 24)
         self.blockSignals(False)
 
     def select_live(self) -> None:

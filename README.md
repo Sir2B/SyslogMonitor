@@ -110,7 +110,7 @@ Your layout, filters, column visibility, and zoom are saved.
 Logs and settings are stored locally in `%LOCALAPPDATA%\SyslogMonitor`.
 By default, logs are kept for **30 days** in a **1 GiB live database**. Older messages
 are moved into a compressed **archive (4 GiB)** instead of being deleted; xz makes them
-about 35 times smaller. Choose an archive with **Source** above the minimap to view it.
+about 35 times smaller. Choose an archive in the **Live data** selector next to the time range to view it.
 Change these limits in **Settings**; the oldest archive file is deleted when the archive
 is full (or messages are deleted directly if the archive is off).
 Upgrading preserves your data and settings.
