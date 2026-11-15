@@ -37,13 +37,28 @@ def counters(snap: StatsSnapshot, rates, *, compact: bool) -> tuple[str, str]:
     return text, f"{counts}\n{live_rates}"
 
 
-def storage(snap: StatsSnapshot, max_bytes: int) -> str:
+def storage(snap: StatsSnapshot, max_bytes: int, archive_max_bytes: int = 0) -> str:
     text = f"DB {format_bytes(snap.storage_bytes)} / {format_bytes(max_bytes)}"
+    if archive_max_bytes or snap.archive_bytes:
+        limit = format_bytes(archive_max_bytes) if archive_max_bytes else tr("off")
+        archive = f"{tr('Archive')} {format_bytes(snap.archive_bytes)} / {limit}"
+        if snap.archive_expiring_ms:
+            archive = _span(archive + " ⏳", AMBER)
+        text += f" · {archive}"
     if snap.writer_error:
         return f"{_bold(snap.writer_error, RED)} · {text}"
     if snap.storage_budget_exceeded:
         return f"{_bold(tr('Budget exceeded'), AMBER)} · {text}"
     return text
+
+
+def storage_tooltip(snap: StatsSnapshot) -> str:
+    if not snap.archive_expiring_ms:
+        return ""
+    from syslog_monitor.ui.formatting import format_ts
+    return tr("The archive is almost full. Archived messages up to {time} will be deleted soon.\n"
+              "Increase the archive budget in Settings or export them to keep them.",
+              time=format_ts(snap.archive_expiring_ms)[:16])
 
 
 def listener(snap: StatsSnapshot, listening: bool) -> str:

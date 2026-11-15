@@ -39,8 +39,12 @@ class _Worker(QObject):
         return self._runner
 
     def interrupt(self) -> None:
-        if self._runner is not None:
-            self._runner.interrupt()
+        runner = self._runner
+        if runner is not None:
+            try:
+                runner.interrupt()
+            except sqlite3.ProgrammingError:  # closed meanwhile by a source switch
+                pass
 
     @Slot(int, int, object)
     def run(self, request_id: int, generation: int, func: QueryFunc) -> None:
@@ -58,11 +62,16 @@ class _Worker(QObject):
             return
         self.finished.emit(request_id, result)
 
+    @Slot(object)
+    def set_db_file(self, db_file: Path) -> None:
+        self.close()
+        self._db_file = db_file
+
     @Slot()
     def close(self) -> None:
-        if self._runner is not None:
-            self._runner.close()
-            self._runner = None
+        runner, self._runner = self._runner, None
+        if runner is not None:
+            runner.close()
 
 
 class QueryClient(QObject):
@@ -70,6 +79,7 @@ class QueryClient(QObject):
 
     error = Signal(str)
     _submit = Signal(int, int, object)
+    _switch = Signal(object)
 
     def __init__(self, db_file: Path, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -78,6 +88,7 @@ class QueryClient(QObject):
         self._worker = _Worker(db_file)
         self._worker.moveToThread(self._thread)
         self._submit.connect(self._worker.run)
+        self._switch.connect(self._worker.set_db_file)
         self._thread.finished.connect(self._worker.close)
         self._worker.finished.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
@@ -103,6 +114,11 @@ class QueryClient(QObject):
 
     def is_pending(self, request_id: int | None) -> bool:
         return request_id is not None and request_id in self._pending
+
+    def set_db_file(self, db_file: Path) -> None:
+        """Query another database from now on; results of earlier requests are discarded."""
+        self.new_generation()
+        self._switch.emit(db_file)
 
     def shutdown(self) -> None:
         self.new_generation()

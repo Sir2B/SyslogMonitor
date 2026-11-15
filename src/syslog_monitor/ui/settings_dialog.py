@@ -68,6 +68,14 @@ class SettingsDialog(QDialog):
                                   suffix=" " + tr("days"))
         self.budget = QSpinBox(minimum=MIN_STORAGE_MB, maximum=10_000_000, value=settings.max_storage_mb,
                                suffix=" MiB", singleStep=512)
+        self.budget.setToolTip(tr("Maximum size of the live database that is shown and searched directly"))
+        self.archive_budget = QSpinBox(minimum=0, maximum=10_000_000, value=settings.archive_max_mb,
+                                       suffix=" MiB", singleStep=512)
+        self.archive_budget.setSpecialValueText(tr("Off – delete old messages"))
+        self.archive_budget.setToolTip(
+            tr("Messages beyond the retention period or storage budget are compressed (gzip, about "
+               "20x smaller) into archive files instead of being deleted.\n"
+               "The oldest archive file is deleted when this budget is exceeded. 0 = off."))
         self.data_dir = QLineEdit(settings.data_dir)
         self.data_dir.setPlaceholderText(tr("Default (%LOCALAPPDATA%\\SyslogMonitor\\data)"))
         browse = QPushButton(tr("Browse…"))
@@ -106,6 +114,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self.create_certificates_button)
         form.addRow(tr("Retention:"), self.retention)
         form.addRow(tr("Storage budget:"), self.budget)
+        form.addRow(tr("Archive budget:"), self.archive_budget)
         form.addRow(tr("Data directory:"), dir_row)
         form.addRow("", self.autostart)
 
@@ -134,8 +143,8 @@ class SettingsDialog(QDialog):
         form.addRow(tr("Boot marker:"), self.boot_marker)
 
         hint = QLabel(
-            tr("Oldest messages are deleted when either the retention period or storage budget "
-            "is exceeded, whichever comes first.\n"
+            tr("Oldest messages are archived (or deleted if the archive is off) when either the "
+            "retention period or storage budget is exceeded, whichever comes first.\n"
             "Port < 1024 (e.g. 514) and the Windows Firewall may require elevated permission.\n"
             "UDP and TCP are unencrypted and unauthenticated; use trusted networks or TLS.\n"
             "A changed data directory takes effect after restarting the application."))
@@ -208,6 +217,7 @@ class SettingsDialog(QDialog):
             tls_ca_file=self.tls_ca.text().strip(),
             retention_days=self.retention.value(),
             max_storage_mb=self.budget.value(),
+            archive_max_mb=self.archive_budget.value(),
             data_dir=self.data_dir.text().strip(),
             autostart_listener=self.autostart.isChecked(),
             update_check_enabled=self.update_check.isChecked(),

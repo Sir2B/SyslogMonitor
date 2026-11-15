@@ -63,7 +63,8 @@ class CaptureService:
                     if receiver.running}
 
     def _policy(self) -> RetentionPolicy:
-        return RetentionPolicy(self.settings.retention_days, self.settings.max_storage_bytes)
+        return RetentionPolicy(self.settings.retention_days, self.settings.max_storage_bytes,
+                               self.settings.archive_max_bytes)
 
     def start_listener(self) -> bool:
         """Start enabled listeners; a failure does not stop the other transport."""

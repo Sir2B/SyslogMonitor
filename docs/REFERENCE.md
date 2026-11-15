@@ -536,8 +536,9 @@ the view refreshes when it finishes. The format is detected from the first non-e
   Lines without PRI keep facility and severity empty. The reception time is the reported
   time, or the import time if none is found; the sender is the reported hostname or `import`.
 
-Imports append and do not deduplicate. Messages older than the retention period are removed
-by the next cleanup. Cancelling keeps the batches (1,000 messages each) already written.
+Imports append and do not deduplicate. Messages older than the retention period are moved
+to the archive (or removed if it is off) by the next cleanup. Cancelling keeps the batches
+(1,000 messages each) already written.
 
 ### Export
 
@@ -633,13 +634,53 @@ pairs; its existing `address` field remains the UDP address when UDP is active.
 Data is stored in `%LOCALAPPDATA%\SyslogMonitor\`:
 
 - `settings.json`: settings, also editable in the Settings dialog
-- `data\syslog.sqlite3`: database (WAL)
+- `data\syslog.sqlite3`: live database (WAL)
+- `data\archive\*.jsonl.xz`: archived messages, `data\archive\index.json`: their time ranges
 - `logs\`: rotating application log, 5 × 2 MiB
 - `ui.ini`: window state
 
-Retention defaults to 30 days and the storage budget defaults to 5 GiB; both are
-configurable. Older data is deleted in small batches every minute. If the budget is
-exceeded, the oldest rows are deleted until usage falls to 90% of the budget.
+Retention defaults to 30 days, the live storage budget to 1 GiB and the archive budget
+to 4 GiB (5 GiB in total); all are configurable. Settings saved with the old 5 GiB live
+default are migrated to 1 GiB live + 4 GiB archive once. If the budget is exceeded, the
+oldest rows are removed until usage falls to 90% of the budget.
+
+### Archive
+
+Messages that the retention period or live budget would remove are archived instead
+(archive budget 0 = delete them as before). They are written as xz-compressed JSON
+lines (one event per line, all database columns; `raw` as UTF-8 text or `raw_b64`).
+Every batch is appended as a complete xz stream and fsynced before it is deleted from the
+database, so a crash cannot lose messages; at most the last batch can appear twice or the
+file tail is truncated (readers stop at the last complete line). Files are standard `.xz`
+and can be read with any tool, e.g. `xzcat`, 7-Zip or Python's `lzma` module. Archive files
+written by version 1 of the archive (`.jsonl.gz`) remain readable and are never appended to.
+
+- **Chunking:** expired messages are archived only once 10% of the retention period
+  (at least one day) is overdue, and the live budget removes 10% at a time, so the archive is
+  not touched every minute. Batches are appended to the newest file.
+- **Files:** a new file starts when the current one reaches 1.25% of the live budget (5% of
+  the archive budget at most, 1 MiB at least), i.e. about 13 MiB for the defaults. That
+  is around 900,000 messages, which loads in roughly 20 seconds. When the archive
+  exceeds its budget, the oldest whole file is deleted.
+- **Warning:** at 90% of the archive budget the archive size in the status bar turns amber
+  with ⏳; its tooltip shows up to when archived messages will be deleted soon.
+- **Viewing:** **Source** above the minimap lists live data and every archive file.
+  A selected file is unpacked into a temporary database, so filters, search, minimap and
+  export work as usual; the time range switches to “All” and returns when you go back to
+  live data. Receiving, storage and highlight notifications continue on the live data.
+
+Measured with 300,000 real messages (516 bytes per message in the database including
+indexes):
+
+| Format | Bytes/message | Ratio | Compress | Decompress |
+|---|---|---|---|---|
+| gzip -6, batches of 5,000 | 22.5 | 25x | 80 MB/s | 390 MB/s |
+| **xz -6, one stream per 5,000** | **14.5** | **38x** | 5.7 MB/s | 170 MB/s |
+| xz -6, one stream per file | 14.8 | 38x | 3.4 MB/s | 180 MB/s |
+
+xz is about 35% smaller than gzip. Compression runs in the writer thread only during
+archiving (about 12,000 messages/s); viewing is dominated by building the database, not
+decompression. Larger blocks do not compress better, so per-batch streams cost nothing.
 
 Measured storage is about **370 bytes per message**, including the full-text index.
 At 10 messages/second for 30 days, that is about 2.6 million messages or 0.9 GiB.
@@ -712,6 +753,7 @@ src/syslog_monitor/
   receiver.py    UDP, TCP, and TLS receiver threads → queue
   writer.py      Batch writer thread, retention/budget, retries
   storage.py     SQLite schema, migrations, deletion logic
+  archive.py     xz archive of removed messages, index, budget
   matching.py    Shared text matching, regex patterns and SQLite matching functions
   query.py       Read queries, filters → SQL, histogram
   export.py      Snapshot-based, streaming CSV/JSONL export

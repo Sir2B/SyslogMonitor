@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import time
@@ -52,6 +53,7 @@ from syslog_monitor.ui.message_inspector import MessageInspector
 from syslog_monitor.ui.navigation import NavigationRail
 from syslog_monitor.ui.palette import apply_theme, is_dark
 from syslog_monitor.ui.query_worker import QueryClient
+from syslog_monitor.ui.archive_source import SourceSelector
 from syslog_monitor.ui.settings_dialog import SettingsDialog
 from syslog_monitor.ui.tray import TrayController
 from syslog_monitor.ui.update_check import DOWNLOAD_URL, UpdateChecker
@@ -136,6 +138,11 @@ class MainWindow(QMainWindow):
         self.queries.error.connect(self._on_query_error)
         self.statistics_queries = QueryClient(service.db_path, self)
         self.value_queries = QueryClient(service.db_path, self)
+        # Highlight alerts always watch the live database, also while an archive is shown.
+        self.watch_queries = QueryClient(service.db_path, self)
+        self._db_path = service.db_path
+        self._source_label = ""
+        self._live_range_index = DEFAULT_RANGE_INDEX
 
         self._build_ui()
         self.update_checker = UpdateChecker(self)
@@ -280,6 +287,12 @@ class MainWindow(QMainWindow):
         minimap_layout.setContentsMargins(6, 4, 6, 4)
         minimap_layout.setSpacing(2)
         time_controls = QHBoxLayout()
+        self.source_selector = SourceSelector(self.service.db_path, self.service.data_dir, self)
+        self.source_selector.source_changed.connect(self._source_changed)
+        source_label = QLabel(tr("Source:"))
+        source_label.setBuddy(self.source_selector)
+        time_controls.addWidget(source_label)
+        time_controls.addWidget(self.source_selector)
         range_label = QLabel(tr("Time range:"))
         range_label.setBuddy(self.range_combo)
         time_controls.addWidget(range_label)
@@ -685,15 +698,15 @@ class MainWindow(QMainWindow):
     def _highlight_watch_tick(self) -> None:
         """Runs even while hidden in the tray: popups must not depend on the view."""
         self.highlight_alerts.flush()
-        if self.queries.is_pending(self._watch_request):
+        if self.watch_queries.is_pending(self._watch_request):
             return
         after = self._watch_after_id
         if after is None:  # first tick: only rows received from now on are "new"
-            self._watch_request = self.queries.submit(
+            self._watch_request = self.watch_queries.submit(
                 lambda r: r.max_id(), lambda last: self._apply_highlight_batch(HighlightBatch(last, 0, [])))
             return
         highlight = self.highlights.notification_rules()
-        self._watch_request = self.queries.submit(
+        self._watch_request = self.watch_queries.submit(
             lambda r: r.new_highlights(after, highlight, MAX_LISTED), self._apply_highlight_batch)
 
     def _apply_highlight_batch(self, batch: HighlightBatch) -> None:
@@ -953,8 +966,34 @@ class MainWindow(QMainWindow):
             self.live_action.setChecked(True)
         self._range_changed()
 
+    def _source_changed(self, path: Path, label: str) -> None:
+        """Show the live database or a loaded archive; receiving continues unchanged."""
+        was_archive = bool(self._source_label)
+        self._db_path, self._source_label = path, label
+        for client in (self.queries, self.statistics_queries, self.value_queries):
+            client.set_db_file(path)
+        if self._analysis_page is not None:
+            self._analysis_page.queries.set_db_file(path)
+        if self._export_dialog is not None:
+            self._export_dialog._db_path = path
+        # Relative ranges ("last hour") would hide an archive: show all of it.
+        if label and not was_archive:
+            self._live_range_index = self.range_combo.currentIndex()
+        index = len(RANGE_PRESETS) - 1 if label else self._live_range_index
+        self.range_combo.blockSignals(True)
+        self.range_combo.setCurrentIndex(index)
+        self.range_combo.blockSignals(False)
+        # Cursors of the old source must not reach the live tick of the new one.
+        self.model.reset_rows([], has_older=False, has_newer=False)
+        self.details.clear()
+        self._range_changed()
+
     def _update_mode_label(self) -> None:
         text, tip = status_text.mode(self._live)
+        if self._source_label:
+            text = f"<b>{html.escape(self._source_label)}</b> · {text}"
+            tip = tr("Showing an archive. New messages are still received and stored "
+                     "in the live data.") + "\n" + tip
         if self._zoom:
             text += f" · Zoom {format_ts(self._zoom[0])[11:19]} – {format_ts(self._zoom[1])[11:19]}"
             tip += f"\nZoom: {format_ts(self._zoom[0])[:19]} – {format_ts(self._zoom[1])[:19]}"
@@ -999,7 +1038,9 @@ class MainWindow(QMainWindow):
         text, tip = status_text.counters(snap, rates, compact=self.zoom_controller.factor > 1.0)
         self.counter_label.setText(text)
         self.counter_label.setToolTip(tip)
-        self.storage_label.setText(status_text.storage(snap, self.service.settings.max_storage_bytes))
+        self.storage_label.setText(status_text.storage(snap, self.service.settings.max_storage_bytes,
+                                                       self.service.settings.archive_max_bytes))
+        self.storage_label.setToolTip(status_text.storage_tooltip(snap))
         if self.tray:
             self.tray.update_status(snap)
 
@@ -1113,14 +1154,14 @@ class MainWindow(QMainWindow):
             raise ValueError(f"Unknown page: {name}")
         if name not in self._pages:
             if name == "analysis":
-                dialog = AnalysisPage(self.service.db_path, self.list_filter, self)
+                dialog = AnalysisPage(self._db_path, self.list_filter, self)
                 self._analysis_page = dialog
             elif name == "import":
                 dialog = ImportDialog(self.service.db_path, self, embedded=True)
                 dialog.imported.connect(self.refresh_all)
                 self._import_dialog = dialog
             elif name == "export":
-                dialog = ExportDialog(self.service.db_path, self.service.settings.boot_marker,
+                dialog = ExportDialog(self._db_path, self.service.settings.boot_marker,
                                       self.filter_bar.current_filter(), self, embedded=True)
                 self._export_dialog = dialog
             elif name == "validation":
@@ -1314,6 +1355,8 @@ class MainWindow(QMainWindow):
         self.inspector_controller.shutdown()
         self.queries.shutdown()
         self.value_queries.shutdown()
+        self.watch_queries.shutdown()
+        self.source_selector.shutdown()
         if self.tray:
             self.tray.hide()
 

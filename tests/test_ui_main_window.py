@@ -398,3 +398,37 @@ def test_quick_filter_buttons_and_context_action(window, qtbot):
     bar.set_quick_values("hostname", [("a", 3), ("", 1)])
     texts = [a.text() for a in bar.quick_buttons["hostname"].menu().actions() if a.isCheckable()]
     assert len(texts) == 2
+
+
+def test_source_selector_switches_between_live_data_and_archive(qtbot, window):
+    from syslog_monitor.archive import Archive
+    from syslog_monitor.storage import EVENT_COLUMNS
+    from syslog_monitor.ui.main_window import RANGE_PRESETS
+
+    archive = Archive(window.service.data_dir, EVENT_COLUMNS)
+    old = int(time.time() * 1000) - 90 * 86_400_000
+    archive.append([(old + i, "192.0.2.9", 514, 1, 6, "rfc3164", "", None, None, "oldhost", "app",
+                     None, None, None, f"archived message {i}", b"raw") for i in range(3)], 2**30)
+    archive.finish()
+    send(window, "<134>Nov  6 00:00:00 client app: live message")
+    qtbot.waitUntil(lambda: window.model.rowCount() == 1)
+    selector = window.source_selector
+    selector.refresh()
+    assert selector.count() == 2
+
+    selector.activated.emit(1)
+    qtbot.waitUntil(lambda: window.model.rowCount() == 3, timeout=10_000)
+    assert window.range_combo.currentIndex() == len(RANGE_PRESETS) - 1
+    assert "Archive" in window.mode_label.text()
+    assert window.model.row_at(0).message.startswith("archived message")
+    import sqlite3
+    fts = sqlite3.connect(window._db_path)
+    assert fts.execute("SELECT count(*) FROM events_fts WHERE events_fts MATCH 'archived'").fetchone()[0] == 3
+    fts.close()
+
+    selector.activated.emit(0)
+    qtbot.waitUntil(lambda: window.model.rowCount() == 1)
+    qtbot.wait(300)  # live ticks must not add the row again
+    assert window.model.rowCount() == 1
+    assert window.model.row_at(0).message.endswith("live message")
+    assert "Archive" not in window.mode_label.text()

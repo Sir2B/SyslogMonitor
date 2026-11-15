@@ -1,6 +1,7 @@
 import queue
 import sqlite3
 import threading
+import time
 
 from conftest import make_event
 
@@ -30,7 +31,7 @@ class FakeStore:
             self.inserted += events
         return len(events)
 
-    def apply_retention(self, now_ms, days, budget):
+    def apply_retention(self, now_ms, days, budget, archive_budget=0):
         self.retention_calls.append((days, budget))
         return 3
 
@@ -104,3 +105,37 @@ def test_policy_change_triggers_maintenance_and_usage_flag():
     writer.stop()
     assert store.retention_calls[-1] == (7, 400)
     assert stats.snapshot().storage_budget_exceeded
+
+
+def test_usage_is_reported_before_slow_first_maintenance_and_warns_near_archive_budget():
+    import threading as _t
+    from syslog_monitor.ui import status_text
+
+    release = _t.Event()
+
+    class SlowStore(FakeStore):
+        def apply_retention(self, *args):
+            release.wait(5)
+            return 0
+
+        def usage(self):
+            return StorageUsage(1000, 1000, 0, archive_bytes=950, archive_oldest_end_ms=BASE)
+
+    store = SlowStore()
+    stats = Stats()
+    writer = EventWriter(queue.Queue(), store, stats, RetentionPolicy(30, 2**30, 1000))
+    writer.start()
+    try:
+        deadline = time.monotonic() + 5
+        while stats.snapshot().storage_bytes != 1000 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        snap = stats.snapshot()
+        assert snap.storage_bytes == 1000 and snap.archive_expiring_ms == BASE
+        assert "⏳" in status_text.storage(snap, 2**30, 1000)
+        assert status_text.storage_tooltip(snap)
+    finally:
+        release.set()
+        writer.stop()
+
+
+BASE = 1_700_000_000_000

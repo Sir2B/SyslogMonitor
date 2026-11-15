@@ -108,8 +108,11 @@ Your layout, filters, column visibility, and zoom are saved.
 ## Storage and privacy
 
 Logs and settings are stored locally in `%LOCALAPPDATA%\SyslogMonitor`.
-By default, logs are kept for **30 days**, with a **5 GiB storage budget**.
-Change these limits in **Settings**; older messages are deleted when a limit is reached.
+By default, logs are kept for **30 days** in a **1 GiB live database**. Older messages
+are moved into a compressed **archive (4 GiB)** instead of being deleted; xz makes them
+about 35 times smaller. Choose an archive with **Source** above the minimap to view it.
+Change these limits in **Settings**; the oldest archive file is deleted when the archive
+is full (or messages are deleted directly if the archive is off).
 Upgrading preserves your data and settings.
 
 - UDP and plain TCP are **unencrypted and unauthenticated**. Use trusted networks

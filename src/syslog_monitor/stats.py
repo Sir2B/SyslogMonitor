@@ -24,6 +24,8 @@ class StatsSnapshot:
     writer_error: str = ""
     storage_bytes: int = 0
     storage_budget_exceeded: bool = False
+    archive_bytes: int = 0
+    archive_expiring_ms: int = 0  # end of the archive data that will be deleted soon
     dropped_tcp_framing: int = 0
     tcp_connections_rejected: int = 0
     tls_handshake_failures: int = 0
@@ -93,6 +95,8 @@ class Stats:
             writer_error="",
             storage_bytes=0,
             storage_budget_exceeded=False,
+            archive_bytes=0,
+            archive_expiring_ms=0,
         )
 
     def add(self, name: str, amount: int = 1) -> None:

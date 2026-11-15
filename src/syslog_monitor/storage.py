@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 import math
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
+from syslog_monitor.archive import Archive, file_target_bytes
 from syslog_monitor.events import SyslogEvent
 
 log = logging.getLogger(__name__)
@@ -22,6 +23,9 @@ SCHEMA_VERSION = 1
 DELETE_BATCH = 5000
 # After exceeding the budget, delete down to this fraction to avoid churning.
 BUDGET_LOW_WATERMARK = 0.9
+DAY_MS = 86_400_000
+ARCHIVE_AGE_CHUNK_DIVISOR = 10
+Sink = Callable[[list[tuple]], None]
 
 EVENT_COLUMNS = (
     "received_at", "source_ip", "source_port", "facility", "severity", "format", "issues",
@@ -161,6 +165,18 @@ _INSERT_SQL = (
 )
 
 
+def insert_rows(conn: sqlite3.Connection, rows: Iterable[tuple]) -> None:
+    """Insert rows given in ``EVENT_COLUMNS`` order (e.g. from the archive)."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.executemany(_INSERT_SQL, rows)
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+
+
 def insert_events(conn: sqlite3.Connection, events: Iterable[SyslogEvent]) -> int:
     rows = [event_to_row(e) for e in events]
     if not rows:
@@ -181,6 +197,8 @@ class StorageUsage:
     file_bytes: int  # db + wal + shm on disk
     used_bytes: int  # pages holding data (excludes free pages)
     free_bytes: int
+    archive_bytes: int = 0
+    archive_oldest_end_ms: int = 0
 
 
 def storage_usage(conn: sqlite3.Connection, path: Path) -> StorageUsage:
@@ -196,7 +214,24 @@ def storage_usage(conn: sqlite3.Connection, path: Path) -> StorageUsage:
     return StorageUsage(file_bytes, (page_count - free_pages) * page_size, free_pages * page_size)
 
 
-def _delete_batch(conn: sqlite3.Connection, where: str, params: tuple, limit: int = DELETE_BATCH) -> int:
+def _delete_batch(conn: sqlite3.Connection, where: str, params: tuple, limit: int = DELETE_BATCH,
+                  sink: Sink | None = None) -> int:
+    if sink is not None:
+        rows = conn.execute(
+            f"SELECT id, {', '.join(EVENT_COLUMNS)} FROM events WHERE {where} "
+            f"ORDER BY received_at, id LIMIT ?", (*params, limit)).fetchall()
+        if not rows:
+            return 0
+        sink([row[1:] for row in rows])  # durable before the rows disappear
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.executemany("DELETE FROM events WHERE id = ?", [(row[0],) for row in rows])
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        return len(rows)
     conn.execute("BEGIN IMMEDIATE")
     try:
         cur = conn.execute(
@@ -212,14 +247,15 @@ def _delete_batch(conn: sqlite3.Connection, where: str, params: tuple, limit: in
     return cur.rowcount
 
 
-def delete_older_than(conn: sqlite3.Connection, cutoff_ms: int) -> int:
+def delete_older_than(conn: sqlite3.Connection, cutoff_ms: int, sink: Sink | None = None) -> int:
     deleted = 0
-    while (n := _delete_batch(conn, "received_at < ?", (cutoff_ms,))) > 0:
+    while (n := _delete_batch(conn, "received_at < ?", (cutoff_ms,), sink=sink)) > 0:
         deleted += n
     return deleted
 
 
-def enforce_budget(conn: sqlite3.Connection, path: Path, budget_bytes: int) -> int:
+def enforce_budget(conn: sqlite3.Connection, path: Path, budget_bytes: int,
+                   sink: Sink | None = None) -> int:
     """Delete oldest events until used pages fit the budget; release excess free pages.
 
     Returns the number of deleted events.
@@ -235,7 +271,7 @@ def enforce_budget(conn: sqlite3.Connection, path: Path, budget_bytes: int) -> i
             # Estimate how many of the oldest rows free the excess space.
             bytes_per_row = usage.used_bytes / count
             wanted = math.ceil((usage.used_bytes - target) / bytes_per_row)
-            n = _delete_batch(conn, "1", (), max(1, min(wanted, DELETE_BATCH)))
+            n = _delete_batch(conn, "1", (), max(1, min(wanted, DELETE_BATCH)), sink)
             if n == 0:
                 break
             deleted += n
@@ -266,20 +302,63 @@ class EventStore:
     def __init__(self, data_dir: Path) -> None:
         self.path = db_path(data_dir)
         self._conn = open_database(data_dir)
+        self.archive = Archive(data_dir, EVENT_COLUMNS)
 
     def insert(self, events: list[SyslogEvent]) -> int:
         return insert_events(self._conn, events)
 
-    def apply_retention(self, now_ms: int, retention_days: int, budget_bytes: int) -> int:
-        cutoff = now_ms - retention_days * 86_400_000
+    def apply_retention(self, now_ms: int, retention_days: int, budget_bytes: int,
+                        archive_budget_bytes: int = 0) -> int:
+        """Remove events beyond retention/budget; with an archive budget they are archived first.
+
+        Returns the number of events removed from the database.
+        """
+        cutoff = now_ms - retention_days * DAY_MS
+        if archive_budget_bytes > 0:
+            try:
+                return self._archive_overflow(cutoff, retention_days, budget_bytes, archive_budget_bytes)
+            except OSError:
+                log.exception("Could not archive events; deleting them instead")
+                try:
+                    self.archive.finish()
+                except OSError:
+                    pass
         deleted = delete_older_than(self._conn, cutoff)
         deleted += enforce_budget(self._conn, self.path, budget_bytes)
         return deleted
 
+    def _archive_overflow(self, cutoff: int, retention_days: int, budget_bytes: int,
+                          archive_budget_bytes: int) -> int:
+        target = file_target_bytes(budget_bytes, archive_budget_bytes)
+
+        def sink(rows: list[tuple]) -> None:
+            self.archive.append(rows, target)
+
+        deleted = 0
+        # Archive expired events in chunks (>= 1 day or 10 % of the retention period)
+        # instead of a few rows every maintenance cycle.
+        slack = max(DAY_MS, retention_days * DAY_MS // ARCHIVE_AGE_CHUNK_DIVISOR)
+        oldest = self._conn.execute("SELECT min(received_at) FROM events").fetchone()[0]
+        try:
+            if oldest is not None and oldest < cutoff - slack:
+                deleted += delete_older_than(self._conn, cutoff, sink)
+            deleted += enforce_budget(self._conn, self.path, budget_bytes, sink)
+        finally:
+            self.archive.finish()
+        self.archive.enforce_budget(archive_budget_bytes)
+        return deleted
+
     def usage(self) -> StorageUsage:
-        return storage_usage(self._conn, self.path)
+        usage = storage_usage(self._conn, self.path)
+        files = self.archive.files()
+        return replace(usage, archive_bytes=sum(f.size for f in files),
+                       archive_oldest_end_ms=files[0].last_ms if files else 0)
 
     def close(self) -> None:
+        try:
+            self.archive.close()
+        except OSError:
+            log.exception("Could not close the archive during shutdown")
         try:
             checkpoint(self._conn)
         except sqlite3.Error:

@@ -440,6 +440,25 @@ GERMAN_TRANSLATIONS = {
     "Start receiving automatically when the application starts":
         "Empfang beim Anwendungsstart automatisch starten",
     "Storage budget:": "Speicherlimit:",
+    "Archive budget:": "Archivlimit:",
+    "Off – delete old messages": "Aus – alte Nachrichten löschen",
+    "Maximum size of the live database that is shown and searched directly":
+        "Maximale Größe der Live-Datenbank, die direkt angezeigt und durchsucht wird",
+    "Messages beyond the retention period or storage budget are compressed (xz, about 35x smaller) into archive files instead of being deleted.\nThe oldest archive file is deleted when this budget is exceeded. 0 = off.":
+        "Nachrichten jenseits von Aufbewahrungsdauer oder Speicherlimit werden komprimiert (xz, etwa 35-mal kleiner) in Archivdateien verschoben statt gelöscht.\nBei Überschreitung dieses Limits wird die älteste Archivdatei gelöscht. 0 = aus.",
+    "Archive": "Archiv",
+    "The archive is almost full. Archived messages up to {time} will be deleted soon.\nIncrease the archive budget in Settings or export them to keep them.":
+        "Das Archiv ist fast voll. Archivierte Nachrichten bis {time} werden bald gelöscht.\nZum Behalten das Archivlimit in den Einstellungen erhöhen oder die Nachrichten exportieren.",
+    "off": "aus",
+    "Source:": "Quelle:",
+    "Live data": "Live-Daten",
+    "Archive {start} – {end}": "Archiv {start} – {end}",
+    "Loading {label}…": "Lade {label}…",
+    "Could not load archive: {message}": "Archiv konnte nicht geladen werden: {message}",
+    "Show live data or an archive of older messages.\nMessages are still received and stored while an archive is shown.":
+        "Live-Daten oder ein Archiv älterer Nachrichten anzeigen.\nWährend ein Archiv angezeigt wird, werden Nachrichten weiterhin empfangen und gespeichert.",
+    "Showing an archive. New messages are still received and stored in the live data.":
+        "Ein Archiv wird angezeigt. Neue Nachrichten werden weiterhin empfangen und in den Live-Daten gespeichert.",
     "System": "System",
     "TCP port:": "TCP-Port:",
     "TCP port, URL: http://<address>:<port>/mcp":
@@ -460,8 +479,8 @@ GERMAN_TRANSLATIONS = {
     "equals": "ist gleich",
     "contains": "enthält",
     "Wide": "Breit",
-    "Oldest messages are deleted when either the retention period or storage budget is exceeded, whichever comes first.\nPort < 1024 (e.g. 514) and the Windows Firewall may require elevated permission.\nUDP and TCP are unencrypted and unauthenticated; use trusted networks or TLS.\nA changed data directory takes effect after restarting the application.":
-        "Ältere Nachrichten werden gelöscht, sobald Aufbewahrungsdauer oder Speicherlimit überschritten sind – je nachdem, was zuerst eintritt.\nPorts unter 1024 (z. B. 514) und die Windows-Firewall können erhöhte Rechte erfordern.\nUDP und TCP sind unverschlüsselt und unauthentifiziert; nur in vertrauenswürdigen Netzwerken oder mit TLS verwenden.\nEin geändertes Datenverzeichnis wird nach einem Neustart verwendet.",
+    "Oldest messages are archived (or deleted if the archive is off) when either the retention period or storage budget is exceeded, whichever comes first.\nPort < 1024 (e.g. 514) and the Windows Firewall may require elevated permission.\nUDP and TCP are unencrypted and unauthenticated; use trusted networks or TLS.\nA changed data directory takes effect after restarting the application.":
+        "Ältere Nachrichten werden archiviert (bzw. gelöscht, wenn das Archiv aus ist), sobald Aufbewahrungsdauer oder Speicherlimit überschritten sind – je nachdem, was zuerst eintritt.\nPorts unter 1024 (z. B. 514) und die Windows-Firewall können erhöhte Rechte erfordern.\nUDP und TCP sind unverschlüsselt und unauthentifiziert; nur in vertrauenswürdigen Netzwerken oder mit TLS verwenden.\nEin geändertes Datenverzeichnis wird nach einem Neustart verwendet.",
     "Local access requires no authentication. Other programs on this computer can also read stored messages.":
         "Der lokale Zugriff benötigt keine Authentifizierung. Auch andere Programme auf diesem Computer können gespeicherte Nachrichten lesen.",
     "If set, devices must present a client certificate signed by this CA":

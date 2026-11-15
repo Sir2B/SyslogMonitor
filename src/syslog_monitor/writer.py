@@ -16,10 +16,13 @@ from syslog_monitor.storage import StorageUsage
 
 log = logging.getLogger(__name__)
 
+ARCHIVE_WARN_SHARE = 0.9
+
 
 class Store(Protocol):
     def insert(self, events: list[SyslogEvent]) -> int: ...
-    def apply_retention(self, now_ms: int, retention_days: int, budget_bytes: int) -> int: ...
+    def apply_retention(self, now_ms: int, retention_days: int, budget_bytes: int,
+                        archive_budget_bytes: int = 0) -> int: ...
     def usage(self) -> StorageUsage: ...
     def close(self) -> None: ...
 
@@ -37,6 +40,7 @@ class WriterTuning:
 class RetentionPolicy:
     retention_days: int
     budget_bytes: int
+    archive_budget_bytes: int = 0  # 0: delete instead of archiving
 
 
 class EventWriter:
@@ -93,6 +97,8 @@ class EventWriter:
         self._store.close()
 
     def _run(self) -> None:
+        # Show sizes right away; the first maintenance can take minutes (initial archiving).
+        self._update_usage()
         next_maintenance = time.monotonic() + self._tuning.maintenance_interval_s
         next_usage = 0.0
         while True:
@@ -151,7 +157,8 @@ class EventWriter:
     def _maintain(self) -> None:
         policy = self._policy
         try:
-            deleted = self._store.apply_retention(now_ms(), policy.retention_days, policy.budget_bytes)
+            deleted = self._store.apply_retention(now_ms(), policy.retention_days, policy.budget_bytes,
+                                                  policy.archive_budget_bytes)
         except Exception:
             log.exception("Could not apply retention/storage budget")
             return
@@ -166,5 +173,10 @@ class EventWriter:
             return
         self._stats.set(
             storage_bytes=usage.file_bytes,
+            archive_bytes=usage.archive_bytes,
+            # Oldest archive file that the archive budget will delete soon (0: none).
+            archive_expiring_ms=usage.archive_oldest_end_ms if (
+                self._policy.archive_budget_bytes
+                and usage.archive_bytes >= self._policy.archive_budget_bytes * ARCHIVE_WARN_SHARE) else 0,
             storage_budget_exceeded=usage.file_bytes > self._policy.budget_bytes,
         )

@@ -122,3 +122,21 @@ def test_mcp_host_validation_and_firewall_scope():
     assert Settings(mcp_host="0.0.0.0", mcp_port=8600).firewall_scope == (
         "0.0.0.0", (("UDP", 514), ("TCP", 8600)))
     assert Settings(mcp_host="0.0.0.0", mcp_enabled=False).firewall_scope == ("0.0.0.0", (("UDP", 514),))
+
+
+def test_old_default_budget_becomes_live_plus_archive(tmp_path):
+    import json
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"max_storage_mb": 5120}), encoding="utf-8")
+    settings = load_settings(path)
+    assert (settings.max_storage_mb, settings.archive_max_mb) == (1024, 4096)
+
+    path.write_text(json.dumps({"max_storage_mb": 5120, "archive_max_mb": 0}), encoding="utf-8")
+    assert load_settings(path).max_storage_mb == 5120
+
+
+def test_archive_budget_is_off_or_at_least_minimum():
+    assert Settings(archive_max_mb=0).validate() == []
+    assert Settings(archive_max_mb=10).validate() == [
+        "Archive budget must be 0 (off) or at least 64 MiB."]

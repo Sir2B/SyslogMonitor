@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 APP_DIR_NAME = "SyslogMonitor"
 MIN_STORAGE_MB = 64
+LEGACY_STORAGE_MB = 5120  # default live budget before the archive existed
 MAX_RETENTION_DAYS = 3650
 DEFAULT_BOOT_MARKER = "Initializing system"
 MCP_HOST = "127.0.0.1"  # default: the MCP server is not reachable from other machines
@@ -36,7 +37,8 @@ class Settings:
     bind_host: str = "0.0.0.0"
     port: int = 514
     retention_days: int = 30
-    max_storage_mb: int = 5120
+    max_storage_mb: int = 1024
+    archive_max_mb: int = 4096  # 0: delete old messages instead of archiving them
     data_dir: str = ""  # empty: <config dir>/data
     autostart_listener: bool = True
     mcp_enabled: bool = True
@@ -61,6 +63,10 @@ class Settings:
     @property
     def max_storage_bytes(self) -> int:
         return self.max_storage_mb * 1024 * 1024
+
+    @property
+    def archive_max_bytes(self) -> int:
+        return self.archive_max_mb * 1024 * 1024
 
     @property
     def listener_endpoints(self) -> tuple[ListenerEndpoint, ...]:
@@ -120,6 +126,9 @@ class Settings:
             errors.append(f"Retention must be between 1 and {MAX_RETENTION_DAYS} days.")
         if self.max_storage_mb < MIN_STORAGE_MB:
             errors.append(f"Storage budget must be at least {MIN_STORAGE_MB} MiB.")
+        if type(self.archive_max_mb) is not int or (
+                self.archive_max_mb != 0 and self.archive_max_mb < MIN_STORAGE_MB):
+            errors.append(f"Archive budget must be 0 (off) or at least {MIN_STORAGE_MB} MiB.")
         if not isinstance(self.mcp_port, int) or not 1 <= self.mcp_port <= 65535:
             errors.append("MCP port must be between 1 and 65535.")
         try:
@@ -142,6 +151,9 @@ def load_settings(path: Path) -> Settings:
         return Settings()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if "archive_max_mb" not in data and data.get("max_storage_mb") == LEGACY_STORAGE_MB:
+            # Old 5 GiB default: keep the 5 GiB total as 1 GiB live data + 4 GiB archive.
+            data["max_storage_mb"] = Settings().max_storage_mb
         known = {f.name for f in fields(Settings)}
         settings = replace(Settings(), **{k: v for k, v in data.items() if k in known})
     except (OSError, ValueError, TypeError) as exc:
