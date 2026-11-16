@@ -1,4 +1,6 @@
 import socket
+
+import pytest
 import time
 from dataclasses import replace
 
@@ -193,12 +195,23 @@ def test_udp_bind_failure_keeps_tcp_running_and_retry_recovers(tmp_path):
         svc.shutdown()
 
 
+def _port_free_for_udp_and_tcp() -> int:
+    # Windows reserves port ranges per protocol; an ephemeral TCP port may be blocked for UDP.
+    for _ in range(50):
+        with (socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_probe,
+              socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_probe):
+            tcp_probe.bind(("127.0.0.1", 0))
+            port = tcp_probe.getsockname()[1]
+            try:
+                udp_probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    pytest.skip("No port is free for both UDP and TCP")
+
+
 def test_udp_and_tcp_can_listen_on_the_same_port_number(tmp_path):
-    with (socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp_probe,
-          socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_probe):
-        tcp_probe.bind(("127.0.0.1", 0))
-        port = tcp_probe.getsockname()[1]
-        udp_probe.bind(("127.0.0.1", port))
+    port = _port_free_for_udp_and_tcp()
     settings = Settings(bind_host="127.0.0.1", port=port, tcp_enabled=True, tcp_port=port)
     svc = CaptureService(tmp_path, settings, tuning=FAST)
     try:
