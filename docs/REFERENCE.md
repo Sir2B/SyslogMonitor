@@ -658,15 +658,17 @@ written by version 1 of the archive (`.jsonl.gz`) remain readable and are never 
 - **Chunking:** expired messages are archived only once 10% of the retention period
   (at least one day) is overdue, and the live budget removes 10% at a time, so the archive is
   not touched every minute. Batches are appended to the newest file.
-- **Files:** a new file starts when the current one reaches 1.25% of the live budget (5% of
-  the archive budget at most, 1 MiB at least), i.e. about 13 MiB for the defaults. That
-  is around 900,000 messages, which loads in roughly 20 seconds. When the archive
-  exceeds its budget, the oldest whole file is deleted.
+- **Files:** a new file starts when the current one reaches 5% of the archive budget
+  (at least 1 MiB), i.e. about 200 MiB and roughly 14 million messages for the defaults,
+  so there are at most about 20 files. When the archive exceeds its budget, the oldest
+  whole file is deleted. `index.json` records the offset, length and time range of every
+  appended xz stream, and is rebuilt from the files if it is missing or outdated.
 - **Warning:** at 90% of the archive budget the archive size in the status bar turns amber
   with ⏳; its tooltip shows up to when archived messages will be deleted soon.
-- **Viewing:** the **Live data** selector next to the time range lists every archive file.
-  A selected file is unpacked into a temporary database, so filters, search, minimap and
-  export work as usual; the time range switches to “All” and returns when you go back to
+- **Viewing:** the **Live data** selector next to the time range lists the archive by
+  local calendar day; days with more than 1 million messages are split into parts (each
+  loads in about 20 seconds). Only the streams of the selected part are read and unpacked into a
+  temporary database, so filters, search, minimap and export work as usual; the time range switches to “All” and returns when you go back to
   live data. Receiving, storage and highlight notifications continue on the live data.
 
 Measured with 300,000 real messages (516 bytes per message in the database including

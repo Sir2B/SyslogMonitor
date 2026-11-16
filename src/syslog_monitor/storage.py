@@ -329,7 +329,7 @@ class EventStore:
 
     def _archive_overflow(self, cutoff: int, retention_days: int, budget_bytes: int,
                           archive_budget_bytes: int) -> int:
-        target = file_target_bytes(budget_bytes, archive_budget_bytes)
+        target = file_target_bytes(archive_budget_bytes)
 
         def sink(rows: list[tuple]) -> None:
             self.archive.append(rows, target)

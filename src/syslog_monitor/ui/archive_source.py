@@ -1,6 +1,6 @@
 """Data source selector: the live database or one archive file.
 
-An archive file is unpacked into a temporary database so the log view, filters,
+An archive day (or part of a busy day) is unpacked into a temporary database so the log view, filters,
 search and minimap work unchanged. Receiving continues into the live database.
 """
 
@@ -15,10 +15,10 @@ from pathlib import Path
 from PySide6.QtCore import QSize, QThread, QTimer, Signal
 from PySide6.QtWidgets import QComboBox, QProgressDialog, QWidget
 
-from syslog_monitor.archive import ArchiveFile, archive_dir, load_into_database, read_index
+from syslog_monitor.archive import ViewChunk, archive_dir, load_parts, read_index, view_chunks
 from syslog_monitor.i18n import tr
 from syslog_monitor.storage import EVENT_COLUMNS, db_path, insert_rows, open_database
-from syslog_monitor.ui.formatting import format_bytes, format_count, format_ts
+from syslog_monitor.ui.formatting import format_count, format_ts
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ VIEW_DIR_PREFIX = "syslog-archive-view-"
 LOAD_SHARE = 70  # percent of the progress bar for reading; the rest is indexing
 
 
-def archive_label(entry: ArchiveFile) -> str:
+def archive_label(entry: ViewChunk) -> str:
     return tr("Archive {start} – {end}", start=format_ts(entry.first_ms)[:16],
               end=format_ts(entry.last_ms)[:16])
 
@@ -34,9 +34,10 @@ def archive_label(entry: ArchiveFile) -> str:
 class ArchiveLoader(QThread):
     progressed = Signal(int)  # percent
 
-    def __init__(self, source: Path, target_dir: Path, parent=None) -> None:
+    def __init__(self, directory: Path, chunk: ViewChunk, target_dir: Path, parent=None) -> None:
         super().__init__(parent)
-        self.source = source
+        self.directory = directory
+        self.chunk = chunk
         self.target_dir = target_dir
         self.error = ""
         self.count = 0
@@ -60,15 +61,15 @@ class ArchiveLoader(QThread):
                 conn.execute("PRAGMA synchronous=OFF")
                 # Building the full-text index once at the end is about 3x faster.
                 conn.execute("DROP TRIGGER events_ai")
-                self.count = load_into_database(self.source, conn, EVENT_COLUMNS,
-                                                insert=insert_rows, progress=self._progress)
+                self.count = load_parts(self.directory, self.chunk.parts, conn, EVENT_COLUMNS,
+                                        insert=insert_rows, progress=self._progress)
                 if not self._cancel.is_set():
                     conn.execute("INSERT INTO events_fts(events_fts) VALUES('rebuild')")
                     self.progressed.emit(100)
             finally:
                 conn.close()
         except Exception as exc:  # report in the GUI, never crash the thread
-            log.exception("Could not load archive %s", self.source)
+            log.exception("Could not load archive part %s", self.chunk.parts)
             self.error = str(exc)
 
 
@@ -93,7 +94,8 @@ class SourceSelector(_RefreshingCombo):
         super().__init__(parent)
         self._live_db = live_db
         self._archive_dir = archive_dir(data_dir)
-        self._active = ""  # archive file name, "" = live
+        self._active = ""  # ViewChunk.key, "" = live
+        self._entries: dict[str, ViewChunk] = {}
         self._view_dir: Path | None = None
         self._stale_dirs: list[Path] = []
         self._loader: ArchiveLoader | None = None
@@ -115,14 +117,13 @@ class SourceSelector(_RefreshingCombo):
         return QSize(48, super().minimumSizeHint().height())
 
     def refresh(self) -> None:
-        files = read_index(self._archive_dir)
+        chunks = view_chunks(read_index(self._archive_dir))
+        self._entries = {chunk.key: chunk for chunk in chunks}
         self.blockSignals(True)
         self.clear()
         self.addItem(tr("Live data"), "")
-        for entry in reversed(files):
-            self.addItem(f"{archive_label(entry)}  ({format_count(entry.count)}, "
-                         f"{format_bytes(entry.size)})", entry.name)
-            self.setItemData(self.count() - 1, entry, role=0x0101)  # Qt.UserRole + 1
+        for chunk in reversed(chunks):
+            self.addItem(f"{archive_label(chunk)}  ({format_count(chunk.count)})", chunk.key)
         index = self.findData(self._active)
         self.setCurrentIndex(max(0, index))
         self.view().setMinimumWidth(self.view().sizeHintForColumn(0) + 24)
@@ -141,9 +142,9 @@ class SourceSelector(_RefreshingCombo):
         if not name:
             self.select_live()
             return
-        entry: ArchiveFile = self.itemData(index, 0x0101)
+        entry = self._entries[name]
         target = Path(tempfile.mkdtemp(prefix=VIEW_DIR_PREFIX))
-        self._loader = ArchiveLoader(self._archive_dir / name, target, self)
+        self._loader = ArchiveLoader(self._archive_dir, entry, target, self)
         progress = QProgressDialog(tr("Loading {label}…", label=archive_label(entry)), tr("Cancel"),
                                    0, 100, self.window())
         progress.setWindowTitle(tr("Archive"))
@@ -156,7 +157,7 @@ class SourceSelector(_RefreshingCombo):
         self._progress = progress
         self._loader.start()
 
-    def _loaded(self, name: str, entry: ArchiveFile, target: Path) -> None:
+    def _loaded(self, name: str, entry: ViewChunk, target: Path) -> None:
         loader, self._loader = self._loader, None
         failed = loader is None or loader.cancelled or bool(loader.error)
         if self._progress is not None:

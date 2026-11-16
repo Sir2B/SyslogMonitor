@@ -5,7 +5,7 @@ import sqlite3
 from conftest import BASE_MS, make_event
 
 from syslog_monitor.archive import (
-    Archive, archive_dir, decode_row, encode_row, file_target_bytes, iter_lines, load_into_database,
+    Archive, load_parts, view_chunks, archive_dir, decode_row, encode_row, file_target_bytes, iter_lines, load_into_database,
     read_index,
 )
 from syslog_monitor.query import EventFilter, QueryRunner
@@ -135,9 +135,8 @@ def test_load_into_viewer_database(tmp_path):
 
 
 def test_file_target_size():
-    assert file_target_bytes(2**30, 4 * 2**30) == 2**30 // 80
-    assert file_target_bytes(2**30, 100 * 2**20) == 5 * 2**20
-    assert file_target_bytes(64 * 2**20, 16 * 2**20) == 2**20
+    assert file_target_bytes(4 * 2**30) == 4 * 2**30 // 20
+    assert file_target_bytes(16 * 2**20) == 2**20
 
 
 def test_archive_files_are_plain_xz(tmp_path):
@@ -165,3 +164,52 @@ def test_legacy_gzip_files_stay_readable_and_are_not_appended(tmp_path):
     names = [f.name for f in archive.files()]
     assert names[0] == "syslog-old.jsonl.gz" and names[1].endswith(".jsonl.xz")
     assert archived_messages(tmp_path) == ["legacy", "new"]
+
+
+def _rows(start_ms, count, step_ms=1000, text="m"):
+    return [(start_ms + i * step_ms, "10.0.0.1", 514, 1, 6, "rfc3164", "", None, None, "h", "a",
+             None, None, None, f"{text}{i}", b"r") for i in range(count)]
+
+
+def test_streams_are_indexed_and_days_become_view_chunks(tmp_path):
+    archive = Archive(tmp_path, EVENT_COLUMNS)
+    day1 = 1_700_000_000_000 - 1_700_000_000_000 % DAY + DAY // 2 - 3_600_000  # around local noon
+    archive.append(_rows(day1, 10, text="a"), 2**30)
+    archive.append(_rows(day1 + 60_000, 10, text="b"), 2**30)
+    archive.append(_rows(day1 + DAY, 10, text="c"), 2**30)
+    archive.finish()
+    [entry] = read_index(archive_dir(tmp_path))
+    assert [s[4] for s in entry.segments] == [10, 10, 10]
+    chunks = view_chunks([entry])
+    assert [c.count for c in chunks] == [20, 10]
+    assert len(chunks[0].parts) == 1  # contiguous streams are read in one go
+    assert [c.count for c in view_chunks([entry], max_events=15)] == [10, 10, 10]
+
+    conn = open_database(tmp_path / "view")
+    assert load_parts(archive_dir(tmp_path), chunks[1].parts, conn, EVENT_COLUMNS, insert=insert_rows) == 10
+    conn.close()
+    assert sorted(messages(tmp_path / "view" / "syslog.sqlite3")) == sorted(f"c{i}" for i in range(10))
+
+
+def test_rescan_rebuilds_streams_and_cuts_an_incomplete_tail(tmp_path):
+    archive = Archive(tmp_path, EVENT_COLUMNS)
+    archive.append(_rows(BASE_MS, 5), 2**30)
+    archive.append(_rows(BASE_MS + 10_000, 5), 2**30)
+    archive.finish()
+    [entry] = archive.files()
+    path = archive_dir(tmp_path) / entry.name
+    with open(path, "ab") as stream:
+        stream.write(lzma.compress(b"partial")[:20])  # crash while appending
+    (archive_dir(tmp_path) / "index.json").unlink()
+    [rescanned] = Archive(tmp_path, EVENT_COLUMNS).files()
+    assert rescanned.segments == entry.segments and rescanned.count == 10
+    assert path.stat().st_size == entry.size
+
+
+def test_new_data_is_appended_until_the_large_target(tmp_path):
+    store = EventStore(tmp_path)
+    for part in range(3):
+        store.insert([make_event(-40 * DAY + part * 1000 + i, message=f"p{part} {i}") for i in range(100)])
+        store.apply_retention(BASE_MS + part * 4 * DAY, 30, 2**30, 4 * 2**30)
+    assert len(read_index(archive_dir(tmp_path))) == 1
+    store.close()

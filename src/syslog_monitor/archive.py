@@ -3,8 +3,10 @@
 Archived events are stored as xz-compressed JSON lines in several files under
 ``<data dir>/archive`` (about 35x smaller than the raw lines, roughly a third
 smaller than gzip). Files written by older versions (``.jsonl.gz``) stay readable.
-The file size is chosen for convenient viewing and coarse budget pruning; larger
-files hardly compress better.
+Files are large (about 5 % of the archive budget) so there are only a few of
+them; the budget deletes whole files. The index records every appended xz stream
+(offset, length, time range), so the viewer can load single days or parts of at
+most ``VIEW_MAX_EVENTS`` events without reading whole files.
 
 The writer thread appends each batch as a complete xz stream (concatenated
 streams form a valid .xz file) and fsyncs it before the rows are deleted from the
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import io
 import json
 import lzma
 import logging
@@ -23,7 +26,7 @@ import os
 import sqlite3
 import threading
 import zlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Sequence
@@ -36,10 +39,10 @@ SUFFIX = ".jsonl.xz"
 SUFFIXES = (SUFFIX, ".jsonl.gz")
 XZ_PRESET = 6
 MIN_FILE_BYTES = 1024 * 1024
-# A file covers ~1.25 % of the live budget (about 13 MiB compressed for 1 GiB, roughly
-# 900,000 events / 450 MB in a viewer database) and at most 5 % of the archive budget.
-FILE_SHARE_OF_LIVE_BUDGET = 80
-FILE_SHARE_OF_ARCHIVE_BUDGET = 20
+FILE_SHARE_OF_ARCHIVE_BUDGET = 20  # ~200 MiB files for a 4 GiB archive
+# A viewed part becomes ~500 bytes per event in the viewer database and loads at
+# about 50,000 events/s: 1 million events are ~500 MB and ~20 s.
+VIEW_MAX_EVENTS = 1_000_000
 LOAD_BATCH = 5000
 
 
@@ -47,9 +50,8 @@ def archive_dir(data_dir: Path) -> Path:
     return data_dir / ARCHIVE_DIRNAME
 
 
-def file_target_bytes(live_budget_bytes: int, archive_budget_bytes: int) -> int:
-    return max(MIN_FILE_BYTES, min(live_budget_bytes // FILE_SHARE_OF_LIVE_BUDGET,
-                                   archive_budget_bytes // FILE_SHARE_OF_ARCHIVE_BUDGET))
+def file_target_bytes(archive_budget_bytes: int) -> int:
+    return max(MIN_FILE_BYTES, archive_budget_bytes // FILE_SHARE_OF_ARCHIVE_BUDGET)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +61,62 @@ class ArchiveFile:
     last_ms: int
     count: int
     size: int
+    # One [offset, length, first_ms, last_ms, count] per appended xz stream; empty for
+    # legacy gzip files (read as a whole).
+    segments: list = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class ViewChunk:
+    """A viewable part of the archive: consecutive streams of one local calendar day."""
+    first_ms: int
+    last_ms: int
+    count: int
+    parts: tuple[tuple[str, int, int], ...]  # (file name, offset, length); length -1: whole file
+
+    @property
+    def key(self) -> str:
+        return f"{self.parts[0][0]}:{self.parts[0][1]}"
+
+
+def _file_segments(entry: ArchiveFile) -> list[tuple[int, int, int, int, int]]:
+    if entry.segments:
+        return [tuple(segment) for segment in entry.segments]
+    return [(0, -1, entry.first_ms, entry.last_ms, entry.count)]
+
+
+def view_chunks(files: Sequence[ArchiveFile], max_events: int = VIEW_MAX_EVENTS) -> list[ViewChunk]:
+    """Group archive streams by local calendar day, splitting days above ``max_events``."""
+    chunks: list[ViewChunk] = []
+    current: list[tuple[str, int, int, int, int, int]] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        parts: list[list] = []
+        for name, offset, length, *_ in current:
+            last = parts[-1] if parts else None
+            if last and last[0] == name and length >= 0 and last[2] >= 0 and last[1] + last[2] == offset:
+                last[2] += length
+            else:
+                parts.append([name, offset, length])
+        chunks.append(ViewChunk(min(s[3] for s in current), max(s[4] for s in current),
+                                sum(s[5] for s in current), tuple(tuple(p) for p in parts)))
+        current.clear()
+
+    day = None
+    count = 0
+    for entry in files:
+        for offset, length, first, last, n in _file_segments(entry):
+            segment_day = datetime.fromtimestamp(first / 1000).date()
+            if current and (segment_day != day or count + n > max_events):
+                flush()
+                count = 0
+            current.append((entry.name, offset, length, first, last, n))
+            day = segment_day
+            count += n
+    flush()
+    return chunks
 
 
 def encode_row(columns: Sequence[str], row: Sequence) -> bytes:
@@ -133,10 +191,15 @@ class _OpenFile:
         self.entry = entry
         self.raw = open(path, "ab")
 
-    def write(self, data: bytes) -> None:
-        self.raw.write(lzma.compress(data, preset=XZ_PRESET))
+    def write(self, data: bytes) -> tuple[int, int]:
+        """Append one xz stream; returns its (offset, length)."""
+        compressed = lzma.compress(data, preset=XZ_PRESET)
+        self.raw.seek(0, os.SEEK_END)
+        offset = self.raw.tell()
+        self.raw.write(compressed)
         self.raw.flush()
         os.fsync(self.raw.fileno())
+        return offset, len(compressed)
 
     def close(self) -> None:
         self.raw.close()
@@ -162,7 +225,8 @@ class Archive:
             for path in (p for suffix in SUFFIXES for p in self.directory.glob(f"*{suffix}")):
                 size = path.stat().st_size
                 entry = known.get(path.name)
-                if entry is None or entry.size != size:
+                if (entry is None or entry.size != size
+                        or (path.name.endswith(SUFFIX) and entry.count and not entry.segments)):
                     entry = self._scan(path, size)
                 if entry is not None:
                     files.append(entry)
@@ -171,7 +235,54 @@ class Archive:
         if set(known) != {f.name for f in files} or any(known.get(f.name) != f for f in files):
             self._write_index()
 
+    def _times(self, lines: Iterable[bytes]) -> list[int]:
+        index = self.columns.index("received_at")
+        times = []
+        for line in lines:
+            try:
+                times.append(decode_row(self.columns, line)[index])
+            except (ValueError, TypeError):
+                continue
+        return times
+
+    def _scan_xz(self, path: Path) -> ArchiveFile | None:
+        """Rebuild the stream index; an incomplete last stream (crash) is cut off."""
+        segments: list[list[int]] = []
+        start = 0
+        with open(path, "rb") as stream:
+            decoder, output, fed, broken = lzma.LZMADecompressor(lzma.FORMAT_XZ), [], 0, False
+            while not broken and (chunk := stream.read(1 << 20)):
+                while chunk:
+                    try:
+                        output.append(decoder.decompress(chunk))
+                    except lzma.LZMAError:
+                        broken = True
+                        break
+                    if not decoder.eof:
+                        fed += len(chunk)
+                        break
+                    rest = decoder.unused_data
+                    used = fed + len(chunk) - len(rest)
+                    times = self._times(line for line in b"".join(output).split(b"\n") if line)
+                    if times:
+                        segments.append([start, used, min(times), max(times), len(times)])
+                    start += used
+                    decoder, output, fed, chunk = lzma.LZMADecompressor(lzma.FORMAT_XZ), [], 0, rest
+        if start < path.stat().st_size:
+            log.warning("Archive %s: removing an incomplete tail after %d bytes", path.name, start)
+            with open(path, "r+b") as stream:
+                stream.truncate(start)
+        if not segments:
+            if start == 0:
+                path.unlink(missing_ok=True)
+                return None
+            return ArchiveFile(path.name, 0, 0, 0, start)
+        return ArchiveFile(path.name, min(s[2] for s in segments), max(s[3] for s in segments),
+                           sum(s[4] for s in segments), start, segments)
+
     def _scan(self, path: Path, size: int) -> ArchiveFile | None:
+        if path.name.endswith(SUFFIX):
+            return self._scan_xz(path)
         first = last = None
         count = 0
         index = self.columns.index("received_at")
@@ -216,12 +327,14 @@ class Archive:
         self.directory.mkdir(parents=True, exist_ok=True)
         index = self.columns.index("received_at")
         current = self._open_for_append(rows[0][index], target_bytes)
-        current.write(b"".join(encode_row(self.columns, row) for row in rows))
+        offset, length = current.write(b"".join(encode_row(self.columns, row) for row in rows))
         times = [row[index] for row in rows]
         entry = current.entry
         first = min(times) if not entry.count else min(entry.first_ms, *times)
-        current.entry = ArchiveFile(entry.name, first, max(entry.last_ms, *times),
-                                    entry.count + len(rows), current.path.stat().st_size)
+        current.entry = replace(
+            entry, first_ms=first, last_ms=max(entry.last_ms, *times), count=entry.count + len(rows),
+            size=offset + length,
+            segments=[*entry.segments, [offset, length, min(times), max(times), len(rows)]])
         with self._lock:
             self._files[-1] = current.entry
         if current.entry.size >= target_bytes:
@@ -254,8 +367,7 @@ class Archive:
             current.close()
         finally:
             entry = current.entry
-            entry = ArchiveFile(entry.name, entry.first_ms, entry.last_ms, entry.count,
-                                current.path.stat().st_size)
+            entry = replace(entry, size=current.path.stat().st_size)
             with self._lock:
                 self._files = [entry if f.name == entry.name else f for f in self._files]
             self._write_index()
@@ -288,29 +400,45 @@ class Archive:
         self.finish()
 
 
-def load_into_database(path: Path, conn: sqlite3.Connection, columns: Sequence[str], *,
-                       insert: Callable[[sqlite3.Connection, Iterable[tuple]], None],
-                       progress: Callable[[int, int], bool] | None = None) -> int:
-    """Copy all events of an archive file into ``conn``; ``progress(read_bytes, total_bytes)``
-    returning False cancels. Returns the number of loaded events."""
-    total = path.stat().st_size
-    loaded = 0
-    batch: list[tuple] = []
-    with open(path, "rb") as raw:
-        for line in _lines(raw, path.name):
-            try:
-                batch.append(decode_row(columns, line))
-            except (ValueError, TypeError):
-                continue
-            if len(batch) >= LOAD_BATCH:
+def load_parts(directory: Path, parts: Sequence[tuple[str, int, int]], conn: sqlite3.Connection,
+               columns: Sequence[str], *, insert: Callable[[sqlite3.Connection, Iterable[tuple]], None],
+               progress: Callable[[int, int], bool] | None = None) -> int:
+    """Copy the events of archive parts ``(file name, offset, length)`` into ``conn``;
+    ``progress(read_bytes, total_bytes)`` returning False cancels. Returns the event count."""
+    sizes = [length if length >= 0 else (directory / name).stat().st_size for name, _, length in parts]
+    total = sum(sizes)
+    done = loaded = 0
+    for (name, offset, length), size in zip(parts, sizes):
+        with open(directory / name, "rb") as raw:
+            if length >= 0:
+                raw.seek(offset)
+                source = io.BytesIO(raw.read(length))
+            else:
+                source = raw
+            batch: list[tuple] = []
+            for line in _lines(source, name):
+                try:
+                    batch.append(decode_row(columns, line))
+                except (ValueError, TypeError):
+                    continue
+                if len(batch) >= LOAD_BATCH:
+                    insert(conn, batch)
+                    loaded += len(batch)
+                    batch = []
+                    if progress is not None and not progress(done + min(source.tell(), size), total):
+                        return loaded
+            if batch:
                 insert(conn, batch)
                 loaded += len(batch)
-                batch = []
-                if progress is not None and not progress(raw.tell(), total):
-                    return loaded
-        if batch:
-            insert(conn, batch)
-            loaded += len(batch)
+        done += size
     if progress is not None:
         progress(total, total)
     return loaded
+
+
+def load_into_database(path: Path, conn: sqlite3.Connection, columns: Sequence[str], *,
+                       insert: Callable[[sqlite3.Connection, Iterable[tuple]], None],
+                       progress: Callable[[int, int], bool] | None = None) -> int:
+    """Copy all events of one archive file into ``conn``."""
+    return load_parts(path.parent, [(path.name, 0, -1)], conn, columns, insert=insert,
+                      progress=progress)
