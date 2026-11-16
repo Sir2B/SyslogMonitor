@@ -432,3 +432,20 @@ def test_source_selector_switches_between_live_data_and_archive(qtbot, window):
     assert window.model.rowCount() == 1
     assert window.model.row_at(0).message.endswith("live message")
     assert "Archive" not in window.mode_label.text()
+
+
+def test_source_selector_is_only_as_wide_as_the_selected_entry(qtbot, window):
+    from syslog_monitor.archive import Archive
+    from syslog_monitor.storage import EVENT_COLUMNS
+
+    selector = window.source_selector
+    live_width = selector.sizeHint().width()
+    archive = Archive(window.service.data_dir, EVENT_COLUMNS)
+    old = int(time.time() * 1000) - 90 * 86_400_000
+    archive.append([(old, "192.0.2.9", 514, 1, 6, "rfc3164", "", None, None, "h", "app", None, None,
+                     None, "archived", b"raw")], 2**30)
+    archive.finish()
+    selector.refresh()
+    assert selector.count() == 2
+    assert selector.sizeHint().width() == live_width
+    assert selector.view().minimumWidth() > live_width  # the popup shows full archive labels

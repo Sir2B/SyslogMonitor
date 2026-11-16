@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QThread, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QProgressDialog, QWidget
+from PySide6.QtWidgets import QComboBox, QProgressDialog, QStyle, QStyleOptionComboBox, QWidget
 
 from syslog_monitor.archive import ViewChunk, archive_dir, load_parts, read_index, view_chunks
 from syslog_monitor.i18n import tr
@@ -101,6 +101,7 @@ class SourceSelector(_RefreshingCombo):
         self._loader: ArchiveLoader | None = None
         self._progress: QProgressDialog | None = None
         self.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.currentIndexChanged.connect(self.updateGeometry)
         self.setToolTip(tr("Show live data or an archive of older messages.\n"
                            "Messages are still received and stored while an archive is shown."))
         self.about_to_show.connect(self.refresh)
@@ -115,6 +116,14 @@ class SourceSelector(_RefreshingCombo):
     def minimumSizeHint(self) -> QSize:
         # May shrink (eliding its text) so narrow windows keep the time controls usable.
         return QSize(48, super().minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:
+        """Fit the selected entry only; long archive labels are shown in the popup list."""
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        text = QSize(self.fontMetrics().horizontalAdvance(self.currentText()),
+                     super().sizeHint().height())
+        return self.style().sizeFromContents(QStyle.CT_ComboBox, option, text, self)
 
     def refresh(self) -> None:
         chunks = view_chunks(read_index(self._archive_dir))
