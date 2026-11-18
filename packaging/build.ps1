@@ -85,6 +85,9 @@ Invoke-Checked $VenvPy @(
     (Join-Path $PSScriptRoot "launcher.py"))
 $AppDir = Join-Path $Stage "dist\SyslogMonitor"
 if (-not (Test-Path (Join-Path $AppDir "SyslogMonitor.exe"))) { throw "SyslogMonitor.exe was not created" }
+# PySide6 ships no OpenSSL, so Qt's OpenSSL TLS plugin would load any libssl-3-x64.dll found on the
+# system (e.g. an incompatible copy in System32 -> "CRYPTO_calloc not found"). Use Schannel instead.
+Get-ChildItem $AppDir -Recurse -Filter "qopensslbackend.dll" | Remove-Item -Force
 
 Write-Host "== Lizenztexte"
 Invoke-Checked $VenvPy @((Join-Path $PSScriptRoot "collect_licenses.py"), $AppDir,
