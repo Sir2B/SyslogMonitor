@@ -583,22 +583,32 @@ class MainWindow(QMainWindow):
         return frame
 
     def _update_rules_height(self) -> None:
-        required_heights = []
-        row_height = 0
-        for scroll, panel in ((self.filters_scroll, self.filter_bar),
-                              (self.highlights_scroll, self.highlights)):
-            flow = panel._flow_layout
-            width = max(1, scroll.viewport().width())
-            required = flow.heightForWidth(width)
-            row_height = max(row_height, max(
-                (flow.itemAt(index).sizeHint().height() for index in range(flow.count())),
-                default=0))
+        panels = ((self.filters_scroll, self.filter_bar), (self.highlights_scroll, self.highlights))
+        row_height = max(
+            (flow.itemAt(index).sizeHint().height()
+             for flow in (panel._flow_layout for _, panel in panels) for index in range(flow.count())),
+            default=0)
+        max_height = 3 * row_height + 6
+
+        def required_height(panel, width: int) -> int:
+            required = panel._flow_layout.heightForWidth(max(1, width))
             if not panel._editors.isHidden():
                 required += panel.layout().spacing() + panel._editors.sizeHint().height()
+            return required
+
+        required_heights = []
+        for scroll, panel in panels:
+            # Derive the width from the scroll area itself, not the viewport: the viewport shrinks
+            # while the scrollbar is visible, which would feed back into the wrapping and make the
+            # bar jump between row counts.
+            width = scroll.contentsRect().width()
+            required = required_height(panel, width)
+            if required > max_height:
+                required = required_height(panel, width - scroll.verticalScrollBar().sizeHint().width())
             panel.setMinimumHeight(required)
             required_heights.append(required)
         frame = self.filter_section.layout().contentsMargins()
-        height = min(max(required_heights), 3 * row_height + 6) + frame.top() + frame.bottom() + 2
+        height = min(max(required_heights), max_height) + frame.top() + frame.bottom() + 2
         if self.rules_splitter.height() != height:
             self.rules_splitter.setFixedHeight(height)
 
