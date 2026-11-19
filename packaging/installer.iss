@@ -44,6 +44,8 @@ Name: "firewalltcp"; Description: "Allow inbound Syslog (TCP and TLS) through th
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
+; Drop the previous runtime so files no longer shipped (e.g. Qt's OpenSSL TLS plugin) cannot linger.
+Type: filesandordirs; Name: "{app}\_internal"
 ; Recreate optional shortcuts according to the selected tasks.
 Type: files; Name: "{autodesktop}\{#AppName}.lnk"
 Type: files; Name: "{userstartup}\{#AppName}.lnk"
